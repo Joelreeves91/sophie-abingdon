@@ -857,7 +857,7 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
 (function(){function tick(){var race=new Date("2026-10-18T09:00:00");/* ← ATHLETE DATA */var now=new Date(),diff=Math.max(0,race-now),days=Math.floor(diff/86400000),g=function(id){return document.getElementById(id);};if(g('cdDays'))g('cdDays').textContent=days;if(g('cdWeeks'))g('cdWeeks').textContent=Math.floor(days/7);if(g('cdMonths'))g('cdMonths').textContent=Math.floor(days/30.44);}tick();setInterval(tick,60000);})();
 
 // ── EDIT / ADD SESSION FEATURE ─────────────────────────────────────────────
-window.EA_PACES={T1:'5:44/km',T2:'5:38/km',T3:'5:34/km',T4:'5:32/km',MP:'6:08/km'}/* ← ATHLETE DATA: threshold tier paces + marathon pace, e.g. {T1:'4:44/km',...,MP:'5:10/km'} */
+window.EA_PACES={T1:'5:44/km',T2:'5:38/km',T3:'5:34/km',T4:'5:32/km',MP:'6:08/km'};/* ← ATHLETE DATA: threshold tier paces + marathon pace, e.g. {T1:'4:44/km',...,MP:'5:10/km'} */
 (function(){
 var eaMode='',eaStep=1,eaWid='',eaDay='',eaType='',eaTier='T3',eaMpOn=true,eaSid='';
 function getEaPaces(){return window.EA_PACES||{T1:'4:18/km',T2:'4:13/km',T3:'4:10/km',T4:'4:05/km',MP:'4:30/km'};}
