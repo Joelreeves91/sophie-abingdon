@@ -1,0 +1,1110 @@
+<!DOCTYPE html>
+<!--
+  ╔══════════════════════════════════════════════════════════════╗
+  ║  RUNNING PLAN TEMPLATE – ALL DISTANCES                      ║
+  ║  All CSS and JS is from the reference implementation.       ║
+  ║  When building a new plan, copy this file and replace       ║
+  ║  every section marked:  ← ATHLETE DATA                     ║
+  ╚══════════════════════════════════════════════════════════════╝
+
+  SECTIONS TO REPLACE (search for ← ATHLETE DATA):
+  1.  <title>         – athlete name and race
+  2.  HEADER          – block label, athlete name, race title, meta line
+  3.  COUNTDOWN       – race datetime string in JS at bottom
+  4.  GOALS ROW       – Goal A, Goal B, Race Pace values
+  5.  PHASE CHIPS     – "Wk X–X" label ranges only (keep class names)
+  6.  PACES PANEL     – state-box pace text, paces-intro, pace-cards,
+                        threshold table rows, zone rows
+  7.  STRENGTH PANEL  – str-intro text, exercise-card content
+  8.  NOTES PANEL     – all four sub-sections
+  9.  FIREBASE ID     – PLAN_ID default string
+  10. PLAN_DATA        – full week/day/session array
+  11. VOL_DATA         – weekly km + phase array
+  12. maxKm            – actual peak week km value
+  13. DATES array      – ISO date ranges for markCurrentWeek()
+  14. EA_PACES         – threshold tier paces T1–T4 and marathon pace
+
+  NEVER CHANGE (marked "do not change"):
+  - All CSS in <style>
+  - TYPE_META object
+  - STEP_KIND object
+  - All rendering functions
+  - All drag/drop handlers
+  - Tab/Strength/Notes switchers
+  - Today tab (renderToday + helpers) – reads live from PLAN_DATA/DATES, no athlete data of its own
+  - saveState / boot / Firebase init
+  - Edit / Add session feature IIFE (only replace EA_PACES values)
+-->
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sophie Hope · Abingdon Marathon 2026</title><!-- ← ATHLETE DATA -->
+
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d1117">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Abingdon"><!-- ← ATHLETE DATA: short name -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ── DO NOT CHANGE ANY CSS ── */
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d1117;--card:#161b22;--card2:#1c2128;--text:#e6edf3;--dim:#7d8590;--border:#30363d;
+  --base:#3fb950;--threshold-col:#f0883e;--specific:#e3b341;--taper:#bc8cff;
+  --race-col:#f85149;--easy-col:#58a6ff;--quality-col:#f0883e;--longrun-col:#8b5cf6;--strength-col:#3fb950;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  --display:'Barlow Condensed',sans-serif;--body:'Barlow',sans-serif;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:15px;line-height:1.5;min-height:100vh;-webkit-font-smoothing:antialiased;padding-bottom:48px}
+.app-header{padding:18px 16px 0;max-width:680px;margin:0 auto}
+.block-label{font-size:0.7rem;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--dim);margin-bottom:2px}
+.block-title{font-size:1.7rem;font-weight:900;letter-spacing:-0.01em;font-family:var(--display)}
+.athlete-name{font-size:0.9rem;color:var(--specific);font-weight:700;margin-bottom:2px;font-family:var(--display);letter-spacing:0.04em}
+.athlete-meta{font-size:0.78rem;color:var(--dim);margin-bottom:14px}
+.athlete-meta span{margin-right:10px}
+.goals-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px}
+.goal-card{background:var(--card);border-radius:10px;padding:10px 12px;text-align:center}
+.goal-label{font-size:0.68rem;color:var(--dim);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px}
+.goal-a{font-size:1.5rem;font-weight:900;color:var(--base);font-family:var(--display)}
+.goal-b{font-size:1.5rem;font-weight:900;color:var(--specific);font-family:var(--display)}
+.goal-pace{font-size:1.5rem;font-weight:900;color:var(--quality-col);font-family:var(--display)}
+.chart-label{font-size:0.72rem;color:var(--dim);margin-bottom:8px}
+.vol-chart{display:flex;align-items:flex-end;gap:3px;height:52px;padding:0 0 20px;margin-bottom:4px}
+.vol-bar-wrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;position:relative;cursor:pointer}
+.vol-bar{width:100%;border-radius:3px 3px 0 0;min-height:4px}
+.vol-bar-wrap:hover .vol-bar{filter:brightness(1.3)}
+.vol-bar-wrap:active .vol-bar{filter:brightness(1.6)}
+.vol-wk-label{position:absolute;bottom:-18px;font-size:0.6rem;color:var(--dim);white-space:nowrap}
+.tab-bar{position:sticky;top:0;z-index:100;background:var(--card);border-bottom:1px solid var(--border);width:100%}
+.tab-inner{display:flex;max-width:680px;margin:0 auto}
+.tab-btn{flex:1;padding:12px 8px;font-size:0.82rem;font-weight:600;color:var(--dim);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;font-family:var(--font);transition:color 0.15s,border-color 0.15s}
+.tab-btn.active{color:var(--text);border-bottom-color:var(--base)}
+.panel{display:none;max-width:680px;margin:0 auto;padding:16px}
+.panel.active{display:block}
+.phase-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.phase-chip{padding:5px 12px;border-radius:20px;font-size:0.74rem;font-weight:600;cursor:pointer;border:1.5px solid transparent;background:transparent;font-family:var(--font);transition:all 0.15s;color:var(--dim)}
+.phase-chip.base{border-color:var(--base);color:var(--base)}
+.phase-chip.threshold-ph{border-color:var(--threshold-col);color:var(--threshold-col)}
+.phase-chip.specific{border-color:var(--specific);color:var(--specific)}
+.phase-chip.taper{border-color:var(--taper);color:var(--taper)}
+.phase-chip.base.active{background:var(--base);color:#0d1117}
+.phase-chip.threshold-ph.active{background:var(--threshold-col);color:#0d1117}
+.phase-chip.specific.active{background:var(--specific);color:#0d1117}
+.phase-chip.taper.active{background:var(--taper);color:#0d1117}
+.week-card{background:var(--card);border-radius:10px;margin-bottom:8px;overflow:hidden;border-left:3px solid var(--border);position:relative}
+.week-card.phase-base{border-left-color:var(--base)}
+.week-card.phase-deload-base{border-left-color:var(--base);opacity:0.78}
+.week-card.phase-threshold-ph{border-left-color:var(--threshold-col)}
+.week-card.phase-deload-threshold{border-left-color:var(--threshold-col);opacity:0.78}
+.week-card.phase-specific{border-left-color:var(--specific)}
+.week-card.phase-taper{border-left-color:var(--taper)}
+.week-card.phase-race-wk{border-left-color:var(--race-col)}
+.week-card.current-week{outline:1.5px solid var(--quality-col);outline-offset:-1px;opacity:1!important}
+.week-bg-num{position:absolute;right:-8px;top:-18px;font-family:var(--display);font-size:5.5rem;font-weight:900;color:rgba(255,255,255,0.028);line-height:1;pointer-events:none;user-select:none;letter-spacing:-0.04em;z-index:0}
+.week-header{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer;user-select:none;position:relative;z-index:1;flex-wrap:wrap}
+.week-header:hover{background:rgba(255,255,255,0.02)}
+.wk-prog-wrap{width:100%;padding:0 0 10px}
+.wk-prog-labels{display:flex;justify-content:space-between;margin-bottom:5px}
+.wk-prog-done{font-size:0.63rem;font-weight:700;letter-spacing:0.03em;color:var(--dim);transition:color 0.3s}
+.wk-prog-total{font-size:0.63rem;color:var(--dim)}
+.wk-prog-track{height:3px;background:var(--border);border-radius:2px;overflow:hidden}
+.wk-prog-fill{height:100%;border-radius:2px;width:0;transition:width 0.55s cubic-bezier(0.34,1.2,0.64,1),background-color 0.3s}
+.wk-prog-fill.pr-red{background:var(--race-col)}
+.wk-prog-fill.pr-amber{background:var(--specific)}
+.wk-prog-fill.pr-green{background:var(--base)}
+.week-h-left{flex:1}
+.week-num-row{font-size:0.82rem;font-weight:700;display:flex;align-items:center;gap:8px;margin-bottom:2px;flex-wrap:wrap}
+.week-dates{font-size:0.72rem;color:var(--dim);font-weight:400}
+.week-desc{font-size:0.8rem;color:var(--dim)}
+.week-h-right{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.week-km-big{font-size:1.4rem;font-weight:900;line-height:1;font-family:var(--display)}
+.week-km-lbl{font-size:0.65rem;color:var(--dim)}
+.week-chevron{color:var(--dim);font-size:0.7rem;transition:transform 0.2s}
+.week-card.open .week-chevron{transform:rotate(180deg)}
+.wtag{font-size:0.62rem;font-weight:700;padding:2px 7px;border-radius:10px;text-transform:uppercase;letter-spacing:0.04em}
+.wtag-deload{background:rgba(63,185,80,0.12);color:var(--base)}
+.wtag-deload-t{background:rgba(240,136,62,0.12);color:var(--threshold-col)}
+.wtag-peak{background:rgba(227,179,65,0.15);color:var(--specific)}
+.wtag-brace{background:rgba(248,81,73,0.12);color:var(--race-col)}
+.wtag-race{background:var(--race-col);color:#fff}
+.wtag-bridge{background:rgba(88,166,255,0.12);color:var(--easy-col)}
+.week-body{padding:0 0 8px;position:relative;z-index:1}
+.day-row{display:flex;align-items:flex-start;border-top:1px solid var(--border);min-height:54px;padding:5px 0;overflow:hidden}
+.day-label{width:44px;flex-shrink:0;padding:6px 0 0 14px;font-size:0.72rem;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:0.06em}
+.session-slot{flex:1;padding:4px 10px 4px 0;display:flex;flex-direction:row;gap:5px;flex-wrap:wrap;min-height:46px;align-items:stretch;position:relative}
+.session-slot.rest-slot{margin:4px 10px 4px 0;min-height:42px;display:flex;align-items:center}
+.rest-indicator{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--card2);border-radius:8px;border-left:3px solid var(--border);flex:1;opacity:0.55;pointer-events:none;user-select:none}
+.rest-dot{width:10px;height:10px;border-radius:50%;background:var(--dim);flex-shrink:0}
+.rest-label{font-size:0.88rem;font-weight:600;color:var(--dim)}
+.session-slot.drag-over-swap{border-left:3px solid var(--quality-col)!important;border-radius:4px;background:rgba(240,136,62,0.06)}
+.session-slot.drag-over-stack{border-right:3px solid var(--base)!important;border-radius:4px;background:rgba(63,185,80,0.06)}
+.drop-hint{position:absolute;top:50%;transform:translateY(-50%);font-size:0.68rem;font-weight:700;pointer-events:none;opacity:0;transition:opacity 0.15s;text-transform:uppercase;letter-spacing:0.05em}
+.drop-hint.swap{left:8px;color:var(--quality-col)}
+.drop-hint.stack{right:8px;color:var(--base)}
+.session-slot.drag-over-swap .drop-hint.swap{opacity:1}
+.session-slot.drag-over-stack .drop-hint.stack{opacity:1}
+.session-card{flex:1;min-width:0;max-width:100%;background:var(--card2);border-radius:8px;padding:9px 12px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:background 0.15s;touch-action:none;user-select:none;border-left:3px solid var(--border)}
+.session-card:hover{background:#242c38}
+.session-card.type-easy{border-left-color:var(--easy-col)}
+.session-card.type-quality{border-left-color:var(--quality-col)}
+.session-card.type-long{border-left-color:var(--longrun-col)}
+.session-card.type-strength{border-left-color:var(--strength-col)}
+.session-card.type-rest{border-left-color:var(--border);opacity:0.6}
+.session-card.type-race{border-left-color:var(--race-col);background:rgba(248,81,73,0.05)}
+.session-card.dragging{opacity:0.35;transform:scale(0.97)}
+.sc-badge{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-family:var(--display);font-size:0.6rem;font-weight:900;letter-spacing:0.01em;flex-shrink:0}
+.type-easy .sc-badge{background:rgba(88,166,255,0.12);color:var(--easy-col)}
+.type-quality .sc-badge{background:rgba(240,136,62,0.12);color:var(--quality-col)}
+.type-long .sc-badge{background:rgba(139,92,246,0.12);color:var(--longrun-col)}
+.type-strength .sc-badge{background:rgba(63,185,80,0.12);color:var(--strength-col)}
+.type-rest .sc-badge{background:rgba(48,54,61,0.6);color:var(--dim)}
+.type-race .sc-badge{background:rgba(248,81,73,0.12);color:var(--race-col)}
+.sc-info{flex:1;min-width:0}
+.sc-title{font-size:0.88rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sc-sub{font-size:0.74rem;color:var(--dim);margin-top:1px}
+.completion-btn{width:26px;height:26px;border-radius:50%;border:1.5px solid var(--border);background:transparent;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all 0.18s;font-size:0.72rem;color:transparent;font-family:var(--font);padding:0;line-height:1}
+.completion-btn.done{border-color:var(--base);background:rgba(63,185,80,0.15);color:var(--base)}
+.completion-btn.skipped{border-color:var(--dim);background:rgba(125,133,144,0.1);color:var(--dim)}
+.session-card.is-done{opacity:0.58}
+.session-card.is-done .sc-title{text-decoration:line-through;text-decoration-color:rgba(63,185,80,0.5)}
+.session-card.is-skipped{opacity:0.35}
+.week-compl{font-size:0.68rem;font-weight:600;color:var(--dim);white-space:nowrap;line-height:1;text-align:right}
+.week-compl.all-done{color:var(--base)}
+.sheet-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:200;opacity:0;pointer-events:none;transition:opacity 0.25s}
+.sheet-overlay.visible{opacity:1;pointer-events:all}
+.bottom-sheet{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-radius:20px 20px 0 0;z-index:201;transform:translateY(100%);transition:transform 0.3s cubic-bezier(0.32,0.72,0,1);max-height:85vh;overflow-y:auto;max-width:680px;margin:0 auto}
+.bottom-sheet.visible{transform:translateY(0)}
+.sheet-handle{width:40px;height:4px;background:var(--border);border-radius:2px;margin:12px auto 0}
+.sheet-head{padding:16px 20px 12px;border-bottom:1px solid var(--border)}
+.sheet-type-badge{display:inline-flex;align-items:center;gap:6px;font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px}
+.sheet-dot{width:8px;height:8px;border-radius:50%}
+.sheet-title{font-size:1.35rem;font-weight:900;margin-bottom:4px;font-family:var(--display)}
+.sheet-meta{font-size:0.82rem;color:var(--dim)}
+.sheet-body{padding:16px 20px}
+.step-item{display:flex;gap:12px;margin-bottom:12px;align-items:flex-start}
+.step-bar{width:3px;border-radius:2px;flex-shrink:0;margin-top:4px;align-self:stretch;min-height:20px}
+.step-bar.w,.step-bar.c,.step-bar.r{background:var(--easy-col)}
+.step-bar.s{background:var(--quality-col)}
+.step-bar.e{background:var(--strength-col)}
+.step-bar.n{background:var(--border)}
+.step-kind{font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--dim);min-width:52px;padding-top:3px}
+.step-kind.w,.step-kind.c,.step-kind.r{color:var(--easy-col)}
+.step-kind.s{color:var(--quality-col)}
+.step-kind.e{color:var(--strength-col)}
+.step-text{font-size:0.86rem;line-height:1.45;flex:1}
+.sheet-note{background:rgba(88,166,255,0.06);border:1px solid rgba(88,166,255,0.15);border-left:3px solid var(--easy-col);border-radius:8px;padding:10px 12px;margin-top:4px;font-size:0.82rem;color:var(--dim);line-height:1.5}
+.sheet-close{width:100%;padding:14px;background:rgba(255,255,255,0.04);border:none;color:var(--text);font-size:0.88rem;font-weight:600;font-family:var(--font);cursor:pointer;border-top:1px solid var(--border)}
+.state-box{background:rgba(88,166,255,0.06);border:1px solid rgba(88,166,255,0.2);border-left:3px solid var(--easy-col);border-radius:10px;padding:13px 14px;margin-bottom:14px;font-size:0.87rem;line-height:1.55}
+.state-box strong{color:var(--easy-col)}
+.paces-intro{background:var(--card);border-radius:10px;padding:14px;margin-bottom:12px;font-size:0.87rem;line-height:1.55;color:var(--dim)}
+.paces-intro strong{color:var(--text)}
+.pace-cards{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}
+.pace-card{background:var(--card);border-radius:10px;padding:12px 14px}
+.pace-name{font-size:0.72rem;color:var(--dim);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px}
+.pace-val{font-size:1.1rem;font-weight:900;font-family:var(--display);letter-spacing:0.02em;margin-bottom:4px}
+.pace-sub{font-size:0.74rem;color:var(--dim)}
+.pace-val.vc-easy{color:var(--easy-col)}.pace-val.vc-mp{color:var(--quality-col)}.pace-val.vc-thr{color:var(--threshold-col)}.pace-val.vc-long{color:var(--longrun-col)}.pace-val.vc-dim{color:var(--dim)}.pace-val.vc-spec{color:var(--specific)}
+.prog-title{font-size:0.76rem;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:0.06em;margin:14px 0 8px}
+.n-table{width:100%;border-collapse:collapse;font-size:0.82rem;margin:8px 0}
+.n-table th{text-align:left;padding:6px 8px;color:var(--dim);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid var(--border);font-weight:500}
+.n-table td{padding:7px 8px;border-bottom:1px solid rgba(48,54,61,0.5);color:var(--dim)}
+.n-table td strong{color:var(--text)}
+.n-table tr:last-child td{border-bottom:none}
+.n-table .mono{font-family:ui-monospace,monospace;font-size:0.8rem}
+.zones-title{font-size:0.76rem;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:0.06em;margin:18px 0 8px}
+.zone-rows{background:var(--card);border-radius:10px;overflow:hidden}
+.zone-row{display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)}
+.zone-row:last-child{border-bottom:none}
+.zone-num{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.72rem;font-weight:700;flex-shrink:0}
+.zR .zone-num{background:rgba(48,54,61,0.5);color:var(--dim)}
+.z1 .zone-num{background:rgba(88,166,255,0.12);color:var(--easy-col)}
+.z2 .zone-num{background:rgba(240,136,62,0.12);color:var(--threshold-col)}
+.z3 .zone-num{background:rgba(227,179,65,0.12);color:var(--specific)}
+.z4 .zone-num{background:rgba(248,81,73,0.15);color:var(--race-col)}
+.z5 .zone-num{background:rgba(188,140,255,0.12);color:var(--taper)}
+.zone-name-text{font-size:0.85rem;font-weight:500}
+.zone-sub-text{font-size:0.74rem;color:var(--dim);margin-top:1px}
+.zone-bpm{font-family:ui-monospace,monospace;font-size:0.82rem;color:var(--text);font-weight:600;text-align:right}
+.str-tabs{display:flex;gap:6px;margin-bottom:14px}
+.str-tab{padding:7px 16px;border-radius:20px;font-size:0.78rem;font-weight:600;cursor:pointer;border:1.5px solid var(--border);background:transparent;color:var(--dim);font-family:var(--font);transition:all 0.15s}
+.str-tab.active-a{border-color:var(--strength-col);color:var(--strength-col);background:rgba(63,185,80,0.08)}
+.str-tab.active-b{border-color:var(--easy-col);color:var(--easy-col);background:rgba(88,166,255,0.08)}
+.str-panel{display:none}
+.str-panel.active{display:block}
+.str-intro{background:var(--card);border-radius:10px;padding:13px 14px;font-size:0.85rem;margin-bottom:10px;line-height:1.5;color:var(--dim)}
+.str-intro strong{color:var(--text)}
+.exercise-card{background:var(--card);border-radius:10px;padding:12px 14px;margin-bottom:7px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.ex-main{flex:1}
+.ex-name{font-weight:600;font-size:0.9rem;margin-bottom:3px}
+.ex-note{font-size:0.79rem;color:var(--dim);line-height:1.4}
+.ex-sets{background:var(--card2);border-radius:6px;padding:5px 10px;font-size:0.78rem;font-weight:700;font-family:ui-monospace,monospace;white-space:nowrap;flex-shrink:0;color:var(--strength-col)}
+.notes-subnav{display:flex;margin-bottom:16px;background:var(--card);border-radius:10px;overflow:hidden;border:1px solid var(--border)}
+.notes-sub-btn{flex:1;padding:10px 6px;font-size:0.74rem;font-weight:600;text-align:center;cursor:pointer;background:none;border:none;color:var(--dim);font-family:var(--font);transition:all 0.15s;border-right:1px solid var(--border)}
+.notes-sub-btn:last-child{border-right:none}
+.notes-sub-btn.active{background:var(--card2);color:var(--text)}
+.notes-section{display:none}
+.notes-section.active{display:block}
+.n-card{background:var(--card);border-radius:10px;padding:14px;margin-bottom:10px;font-size:0.87rem;line-height:1.55}
+.n-card h3{font-size:0.76rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--dim);margin-bottom:10px}
+.n-card p{margin-bottom:8px;color:var(--dim)}
+.n-card p:last-child{margin-bottom:0}
+.n-card strong{color:var(--text)}
+.n-card ul{padding-left:18px;margin:6px 0}
+.n-card li{margin-bottom:5px;color:var(--dim)}
+.n-card li strong{color:var(--text)}
+.callout{border-radius:8px;padding:11px 13px;margin:8px 0;font-size:0.84rem;line-height:1.45}
+.callout.amber{background:rgba(240,136,62,0.08);border-left:3px solid var(--threshold-col)}
+.callout.green{background:rgba(63,185,80,0.08);border-left:3px solid var(--base)}
+.callout.red{background:rgba(248,81,73,0.08);border-left:3px solid var(--race-col)}
+.callout.blue{background:rgba(88,166,255,0.08);border-left:3px solid var(--easy-col)}
+.callout.yellow{background:rgba(227,179,65,0.08);border-left:3px solid var(--specific)}
+.callout.purple{background:rgba(188,140,255,0.08);border-left:3px solid var(--taper)}
+.callout p{margin-bottom:5px;color:var(--dim)}
+.callout p:last-child{margin-bottom:0}
+.callout strong{color:var(--text)}
+.save-bar{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--card);border:1px solid var(--border);padding:10px 16px;z-index:150;display:flex;align-items:center;justify-content:center;gap:12px;border-radius:50px;transition:transform 0.28s cubic-bezier(0.32,0.72,0,1),opacity 0.28s;box-shadow:0 4px 24px rgba(0,0,0,0.6);min-width:220px}
+.save-bar.hidden{transform:translateX(-50%) translateY(100px);opacity:0;pointer-events:none}
+.save-btn{background:rgba(240,136,62,0.1);border:1.5px solid var(--quality-col);color:var(--quality-col);padding:9px 24px;border-radius:40px;font-size:0.84rem;font-weight:700;cursor:pointer;font-family:var(--font);transition:all 0.2s;white-space:nowrap}
+.save-btn:hover{background:rgba(240,136,62,0.2)}
+.save-status{font-size:0.75rem;color:var(--dim);flex-shrink:0}
+
+/* ── EDIT / ADD SESSION FEATURE ── */
+.session-edit-btn{width:24px;height:24px;border-radius:6px;border:1.5px solid;background:transparent;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;font-size:11px;transition:opacity .15s;line-height:1;padding:0}
+.session-edit-btn:hover{opacity:.65}
+.type-easy .session-edit-btn{border-color:var(--easy-col);color:var(--easy-col)}
+.type-quality .session-edit-btn{border-color:var(--quality-col);color:var(--quality-col)}
+.type-long .session-edit-btn{border-color:var(--longrun-col);color:var(--longrun-col)}
+.type-strength .session-edit-btn{border-color:var(--strength-col);color:var(--strength-col)}
+.type-race .session-edit-btn{border-color:var(--race-col);color:var(--race-col)}
+.type-rest .session-edit-btn{display:none}
+.ea-add-btn{width:26px;height:26px;border-radius:8px;border:1.5px solid #22d3ee;background:rgba(34,211,238,.08);color:#22d3ee;font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;line-height:1;padding:0;transition:background .15s}
+.ea-add-btn:hover{background:rgba(34,211,238,.18)}
+.week-card .ea-add-btn{display:none}
+.week-card.open .ea-add-btn{display:flex}
+.ea-ov{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;opacity:0;pointer-events:none;transition:opacity .25s}
+.ea-ov.on{opacity:1;pointer-events:all}
+.ea-sh{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-radius:20px 20px 0 0;z-index:201;transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,0,1);max-height:88vh;display:flex;flex-direction:column;max-width:680px;margin:0 auto}
+.ea-sh.open{transform:translateY(0)}
+.ea-hdl{width:36px;height:4px;background:var(--border);border-radius:2px;margin:10px auto 6px;flex-shrink:0}
+.ea-head{padding:10px 20px 12px;border-bottom:1px solid var(--border);flex-shrink:0}
+.ea-steps{display:flex;align-items:center;gap:5px;margin-bottom:6px}
+.ea-dot{width:7px;height:7px;border-radius:50%;background:var(--border);transition:background .2s}
+.ea-dot.on{background:var(--base)}.ea-dot.cur{background:#22d3ee}
+.ea-slbl{font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-left:3px}
+.ea-title{font-size:1.2rem;font-weight:900;font-family:var(--display);margin-bottom:2px}
+.ea-sub{font-size:0.76rem;color:var(--dim)}
+.ea-body{flex:1;overflow-y:auto;padding:14px 20px;-webkit-overflow-scrolling:touch}
+.ea-foot{flex-shrink:0;padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;background:var(--card)}
+.ea-bp{flex:1;padding:11px;border-radius:10px;background:var(--base);color:#0d1117;font-size:0.86rem;font-weight:700;border:none;cursor:pointer;font-family:var(--font)}
+.ea-bp:hover{opacity:.85}.ea-bp:disabled{opacity:.35;cursor:default}
+.ea-bs{padding:11px 14px;border-radius:10px;border:1.5px solid var(--border);background:transparent;color:var(--dim);font-size:0.86rem;font-weight:600;cursor:pointer;font-family:var(--font)}
+.ea-bbk{display:flex;align-items:center;gap:4px;background:none;border:none;color:var(--dim);font-size:0.76rem;font-weight:600;cursor:pointer;font-family:var(--font);padding:0 0 12px}
+.ea-fl{font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);margin-bottom:6px}
+.ea-dg{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.ea-dp{width:52px;padding:8px 0;text-align:center;border-radius:10px;border:1.5px solid var(--border);background:transparent;color:var(--dim);font-size:0.82rem;font-weight:600;cursor:pointer;font-family:var(--font);transition:all .15s}
+.ea-dp.sel{border-color:var(--base);background:rgba(63,185,80,.1);color:var(--base);font-weight:800}
+.ea-tc{border-radius:10px;padding:12px 14px;border:1.5px solid var(--border);cursor:pointer;display:flex;align-items:center;gap:12px;margin-bottom:8px;transition:all .15s}
+.ea-tc.sel-e{border-color:var(--easy-col);background:rgba(88,166,255,.06)}
+.ea-tc.sel-q{border-color:var(--quality-col);background:rgba(240,136,62,.06)}
+.ea-tc.sel-l{border-color:var(--longrun-col);background:rgba(139,92,246,.06)}
+.ea-tci{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.ea-tc-e .ea-tci{background:rgba(88,166,255,.12);color:var(--easy-col)}
+.ea-tc-q .ea-tci{background:rgba(240,136,62,.12);color:var(--quality-col)}
+.ea-tc-l .ea-tci{background:rgba(139,92,246,.12);color:var(--longrun-col)}
+.ea-tn{font-size:0.88rem;font-weight:600}.ea-td{font-size:0.75rem;color:var(--dim);margin-top:1px}
+.ea-tiers{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.ea-tp{padding:6px 10px;border-radius:14px;border:1.5px solid var(--border);background:transparent;color:var(--dim);font-size:0.75rem;font-weight:600;cursor:pointer;font-family:var(--font);transition:all .15s}
+.ea-tp.sel{border-color:var(--quality-col);background:rgba(240,136,62,.1);color:var(--quality-col)}
+.ea-sec{background:var(--bg);border-radius:10px;padding:11px 12px;margin-bottom:8px;border:1px solid rgba(48,54,61,.8)}
+.ea-sh2{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.ea-bar{width:3px;height:13px;border-radius:2px;flex-shrink:0}
+.ea-sl{font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--dim)}
+.ea-rg{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.ea-rc{display:flex;flex-direction:column;gap:5px}
+.ea-rl{font-size:0.72rem;color:var(--dim);text-align:center}
+.ea-fi{background:var(--card2);border:1.5px solid var(--border);border-radius:8px;padding:7px 6px;color:var(--text);font-size:0.82rem;font-family:var(--font);outline:none;width:100%;text-align:center}
+.ea-fi:focus{border-color:var(--easy-col)}
+.ea-pi{background:rgba(240,136,62,.08);border:1.5px solid var(--quality-col);border-radius:8px;padding:7px 6px;color:var(--quality-col);font-size:0.82rem;font-weight:700;font-family:var(--font);outline:none;width:100%;text-align:center}
+.ea-frow{display:flex;align-items:center;gap:7px}
+.ea-flbl{font-size:0.76rem;color:var(--dim);white-space:nowrap}
+.ea-pn{font-size:0.72rem;color:var(--base);margin-top:6px;display:flex;align-items:center;gap:4px}
+.ea-mtr{display:flex;align-items:center;justify-content:space-between}
+.ea-ttrk{width:40px;height:22px;border-radius:11px;background:var(--base);cursor:pointer;position:relative;flex-shrink:0;transition:background .2s}
+.ea-ttrk.off{background:var(--border)}
+.ea-tknb{position:absolute;top:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .15s}
+.ea-ttrk.off .ea-tknb{left:3px}.ea-ttrk .ea-tknb{left:calc(100% - 19px)}
+.ea-mpf{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+.ea-rlnk{text-align:center;padding:8px 0 2px;font-size:0.76rem;color:var(--dim);cursor:pointer;text-decoration:underline}
+.ea-ntag{font-size:0.6rem;font-weight:700;text-transform:uppercase;background:rgba(63,185,80,.15);color:var(--base);padding:2px 5px;border-radius:4px;margin-left:5px;vertical-align:middle}
+.ea-etag{font-size:0.6rem;font-weight:700;text-transform:uppercase;background:rgba(240,136,62,.12);color:var(--quality-col);padding:2px 5px;border-radius:4px;margin-left:5px;vertical-align:middle}
+.sheet-delete{width:100%;padding:13px;background:rgba(248,81,73,0.06);border:none;border-top:1px solid var(--border);color:var(--race-col);font-size:0.82rem;font-weight:600;font-family:var(--font);cursor:pointer;transition:background .15s}
+.sheet-delete:hover{background:rgba(248,81,73,0.13)}
+/* ── TODAY TAB (added) ── */
+#panel-today .today-top{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:16px}
+.today-day{font-family:var(--display);font-weight:900;font-size:1.9rem;line-height:0.95;letter-spacing:-0.01em}
+.today-date{font-size:0.8rem;color:var(--dim);margin-top:2px;font-weight:500}
+.tphase-card{background:var(--card);border-radius:14px;padding:15px;margin-bottom:16px}
+.tphase-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px;gap:10px}
+.tphase-wk{font-size:0.66rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--dim)}
+.tphase-name{font-family:var(--display);font-weight:900;font-size:1.4rem;line-height:1.05;margin-top:1px;white-space:nowrap}
+.tphase-sub{font-size:0.7rem;color:var(--dim);text-align:right;max-width:120px;flex-shrink:0}
+.tphase-bar{display:flex;gap:3px;align-items:flex-end;height:28px}
+.tphase-seg{flex:1;border-radius:3px;transition:all .3s}
+.tphase-legend{display:flex;justify-content:space-between;margin-top:7px;font-size:0.56rem;color:#484f58;letter-spacing:0.04em;text-transform:uppercase;font-weight:600}
+.tlabel{font-size:0.66rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--dim);margin:0 2px 9px}
+.thero{background:var(--card);border-radius:14px;overflow:hidden;margin-bottom:18px;border-left:4px solid var(--border)}
+.thero-pill{display:inline-flex;align-items:center;gap:7px;padding:4px 11px;border-radius:20px;font-size:0.66rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px}
+.thero-pill .dot{width:7px;height:7px;border-radius:50%}
+.thero-title{font-family:var(--display);font-weight:900;font-size:1.75rem;line-height:1.02;margin-bottom:3px}
+.thero-sub{font-size:0.85rem;color:var(--dim);margin-bottom:13px}
+.thero-step{display:flex;gap:11px;margin-bottom:11px;align-items:flex-start}
+.thero-step .bar{width:3px;align-self:stretch;border-radius:2px;flex-shrink:0;margin-top:2px;min-height:18px}
+.thero-step .kind{font-size:0.6rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:1px}
+.thero-step .txt{font-size:0.86rem;line-height:1.4}
+.thero-note{margin:4px 16px 14px;border-radius:8px;padding:10px 12px;font-size:0.8rem;line-height:1.5}
+.thero-btn{width:100%;padding:15px;border:none;cursor:pointer;font-family:var(--font);font-size:0.9rem;font-weight:700;transition:all .2s;border-top:1px solid var(--border)}
+.tsec-card{display:flex;align-items:center;gap:10px;background:var(--card2);border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer;border-left:3px solid var(--border)}
+.tstrip{display:flex;gap:6px;margin-bottom:16px}
+.tstrip-day{flex:1;display:flex;flex-direction:column;align-items:center;gap:7px;cursor:pointer;padding:9px 0;border-radius:10px;border:1px solid transparent}
+.tstrip-lbl{font-size:0.62rem;font-weight:700;text-transform:uppercase}
+.tstrip-dot{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.68rem;font-weight:800;font-family:var(--display);border:1.5px solid}
+.twk-prog{background:var(--card);border-radius:12px;padding:14px 16px;margin-bottom:18px}
+.tnext{display:flex;align-items:center;gap:12px;background:var(--card);border-radius:12px;padding:13px 14px;cursor:pointer;border-left:4px solid var(--border)}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════
+     HEADER  ← ATHLETE DATA: replace all values
+     ══════════════════════════════════════════════ -->
+<div class="app-header">
+  <div class="block-label">16-WEEK MARATHON PLAN</div><!-- ← ATHLETE DATA: e.g. MARATHON / HALF MARATHON / 5K / 10K / 50K / BASE BLOCK -->
+  <div class="athlete-name">Sophie Hope</div><!-- ← ATHLETE DATA -->
+  <div class="block-title">Abingdon Marathon 2026</div><!-- ← ATHLETE DATA -->
+  <div class="athlete-meta">
+    <span>VDOT 37</span><span>MHR 195</span><span>COROS</span><span>Sun 18 Oct 2026</span><!-- ← ATHLETE DATA -->
+  </div>
+
+  <!-- Countdown – datetime updated in JS at bottom -->
+  <div style="display:flex;gap:0;background:var(--card);border-radius:10px;margin-bottom:14px;overflow:hidden">
+    <div style="flex:1;text-align:center;padding:10px 0;border-right:1px solid var(--border)">
+      <div id="cdDays" style="font-family:var(--display);font-size:1.7rem;font-weight:900;color:var(--easy-col);line-height:1">--</div>
+      <div style="font-size:0.62rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--dim);margin-top:3px">Days</div>
+    </div>
+    <div style="flex:1;text-align:center;padding:10px 0;border-right:1px solid var(--border)">
+      <div id="cdWeeks" style="font-family:var(--display);font-size:1.7rem;font-weight:900;color:var(--specific);line-height:1">--</div>
+      <div style="font-size:0.62rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--dim);margin-top:3px">Weeks</div>
+    </div>
+    <div style="flex:1;text-align:center;padding:10px 0;border-right:1px solid var(--border)">
+      <div id="cdMonths" style="font-family:var(--display);font-size:1.7rem;font-weight:900;color:var(--taper);line-height:1">--</div>
+      <div style="font-size:0.62rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--dim);margin-top:3px">Months</div>
+    </div>
+    <div style="flex:2;padding:10px 14px;display:flex;flex-direction:column;justify-content:center">
+      <div style="font-size:0.88rem;font-weight:600;color:var(--text);line-height:1.3">To Race Day</div>
+      <div style="font-size:0.7rem;color:var(--dim);margin-top:3px">Sun 18 Oct 2026 · Abingdon</div><!-- ← ATHLETE DATA -->
+
+    </div>
+  </div>
+  <div id="masthead-extra" style="display:none">
+  <!-- Goals ← ATHLETE DATA -->
+  <div class="goals-row"><!-- ← ATHLETE DATA -->
+    <div class="goal-card"><div class="goal-label">Goal A</div><div class="goal-a">4:20</div></div>
+    <div class="goal-card"><div class="goal-label">Goal B</div><div class="goal-b">4:30</div></div>
+    <div class="goal-card"><div class="goal-label">Race Pace</div><div class="goal-pace">6:05-6:10/km</div></div>
+  </div>
+
+  <div class="chart-label">Weekly Volume (km)</div>
+  <div class="vol-chart" id="volChart"></div>
+  </div>
+</div>
+
+<!-- Tab bar – do not change -->
+<nav class="tab-bar">
+  <div class="tab-inner">
+    <button class="tab-btn active" onclick="switchTab('today',this)">Today</button>
+    <button class="tab-btn" onclick="switchTab('plan',this)">Plan</button>
+    <button class="tab-btn" onclick="switchTab('paces',this)">Paces</button>
+    <button class="tab-btn" onclick="switchTab('strength',this)">Strength</button>
+    <button class="tab-btn" onclick="switchTab('notes',this)">Notes</button>
+  </div>
+</nav>
+
+<!-- ══════════════════════════════════════════════
+     PLAN – update chip label text only (Wk X–X)
+     Keep class names base/threshold-ph/specific/taper
+     ══════════════════════════════════════════════ -->
+<div id="panel-today" class="panel active"></div>
+
+<div id="panel-plan" class="panel">
+  <div class="phase-chips">
+    <button class="phase-chip base active" onclick="filterPhase('base',this)">Base · Wk 1-5</button>
+    <button class="phase-chip threshold-ph" onclick="filterPhase('threshold-ph',this)">Threshold · Wk 6-9</button>
+    <button class="phase-chip specific" onclick="filterPhase('specific',this)">Specific · Wk 10-13</button>
+    <button class="phase-chip taper" onclick="filterPhase('taper',this)">Taper · Wk 14-16</button>
+  </div>
+
+  <div id="week-list"></div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     PACES – ← ATHLETE DATA: replace all content
+     Keep all CSS class names exactly as shown
+     ══════════════════════════════════════════════ -->
+<div id="panel-paces" class="panel">
+  <div class="state-box">
+    <strong>Easy is a state, not a pace.</strong> Easy running is defined by what your body is doing, aerobic and conversational, not by what the watch says. On a warm day easy might be 7:30/km, on a cool fresh morning 6:40/km. Both are right if heart rate stays in the Aerobic Endurance band. The pace shown on easy sessions is what that zone <em>typically produces right now</em>, and it will drop on its own as fitness rises.
+  </div>
+  <div class="paces-intro">HM 2:02:27 (Feb 2026) indicates <strong>VDOT 37</strong>, and your May 2025 5K of 24:37 agrees. That engine is worth roughly a <strong>4:15 to 4:25</strong> marathon once it is properly fuelled and the endurance is built. We target <strong>4:20</strong> (Goal A), with <strong>sub-4:30</strong> (Goal B) as the floor you asked for. The Aug 2025 10K (54:53) sits a long way below the other two, most likely pacing or course, so it is not used as the anchor.</div>
+  <div class="pace-cards">
+    <div class="pace-card"><div class="pace-name">Recovery</div><div class="pace-val vc-dim">HR &lt;139</div><div class="pace-sub">~7:30+/km · rest-day jogs</div></div>
+    <div class="pace-card"><div class="pace-name">Easy / Long Run</div><div class="pace-val vc-easy">HR 139-160</div><div class="pace-sub">~6:45-7:20/km now · HR controls, pace describes</div></div>
+    <div class="pace-card"><div class="pace-name">Marathon Pace</div><div class="pace-val vc-mp">6:05-6:10/km</div><div class="pace-sub">Goal A 4:20 · watch pace · HR ~161-173</div></div>
+    <div class="pace-card"><div class="pace-name">Threshold Tier 1</div><div class="pace-val vc-thr">5:42-5:46/km</div><div class="pace-sub">Weeks 3-5 · HR 174-178</div></div>
+    <div class="pace-card"><div class="pace-name">Threshold Tier 2</div><div class="pace-val vc-thr">5:36-5:40/km</div><div class="pace-sub">Weeks 6-9 · HR 174-178</div></div>
+    <div class="pace-card"><div class="pace-name">Threshold Tier 3</div><div class="pace-val vc-thr">5:32-5:36/km</div><div class="pace-sub">Weeks 10-13 · HR 174-178</div></div>
+    <div class="pace-card"><div class="pace-name">Threshold Tier 4</div><div class="pace-val vc-thr">5:30-5:34/km</div><div class="pace-sub">Week 14 sharpener · peak pace</div></div>
+    <div class="pace-card"><div class="pace-name">Strides</div><div class="pace-val vc-spec">~4:45 feel</div><div class="pace-sub">Effort-based · neuromuscular</div></div>
+    <div class="pace-card"><div class="pace-name">B-Race HM Target</div><div class="pace-val vc-mp">~95% effort</div><div class="pace-sub">Sun 20 Sep · fuelling rehearsal</div></div>
+  </div>
+  <div class="callout blue"><p><strong>Why marathon pace is shown as a watch pace.</strong> Your goal is a chip time over the certified 42.195km, but a GPS watch reads about 1% long on a flat road marathon. If you run the naive chip pace (6:10/km) on the watch, you finish slow. So race pace is built slightly fast on purpose: <strong>6:05-6:10/km on the watch</strong> delivers a 4:20 chip time. Run to the watch number.</p></div>
+  <div class="prog-title">Threshold Pace Progression</div>
+  <table class="n-table">
+    <tr><th>Phase</th><th>Weeks</th><th>T-Pace</th><th>Rationale</th></tr>
+    <tr><td>Base</td><td>3-5</td><td class="mono">5:42-5:46/km</td><td>VDOT 37 threshold anchor, conservative reintroduction</td></tr>
+    <tr><td>Threshold</td><td>6-9</td><td class="mono">5:36-5:40/km</td><td>Tighten as the base rises, recalibrate off the 9 Aug 10K</td></tr>
+    <tr><td>Specific</td><td>10-13</td><td class="mono">5:32-5:36/km</td><td>Peak threshold, recalibrate off the 20 Sep half</td></tr>
+    <tr><td>Taper sharpener</td><td>14</td><td class="mono">5:30-5:34/km</td><td>Final quality touch at peak fitness</td></tr>
+  </table>
+  <div class="zones-title">COROS Heart Rate Zones (MHR 195)</div>
+  <div class="zone-rows">
+    <div class="zone-row zR"><div class="zone-num">R</div><div><div class="zone-name-text">Recovery</div><div class="zone-sub-text">Rest days, very easy jogs</div></div><div class="zone-bpm">&lt;139</div></div>
+    <div class="zone-row z1"><div class="zone-num">1</div><div><div class="zone-name-text">Aerobic Endurance</div><div class="zone-sub-text">Easy runs, long runs</div></div><div class="zone-bpm">139-160</div></div>
+    <div class="zone-row z2"><div class="zone-num">2</div><div><div class="zone-name-text">Aerobic Power</div><div class="zone-sub-text">Steady state, MP segments</div></div><div class="zone-bpm">161-173</div></div>
+    <div class="zone-row z3"><div class="zone-num">3</div><div><div class="zone-name-text">Threshold</div><div class="zone-sub-text">T-pace sessions, HM pace</div></div><div class="zone-bpm">174-178</div></div>
+    <div class="zone-row z4"><div class="zone-num">4</div><div><div class="zone-name-text">Anaerobic Endurance</div><div class="zone-sub-text">10K race efforts</div></div><div class="zone-bpm">179-188</div></div>
+    <div class="zone-row z5"><div class="zone-num">5</div><div><div class="zone-name-text">Anaerobic Power</div><div class="zone-sub-text">Strides · brief only</div></div><div class="zone-bpm">&gt;188</div></div>
+  </div>
+  <div class="callout amber" style="margin-top:14px"><p><strong>Confirm these against your watch.</strong> These bands are computed from your max HR of 195. Open the COROS app, read your six native zones, and if they differ, those win. Do not recalculate them with Karvonen off your waking resting HR (70), that reading is artificially high and would inflate the zones.</p></div>
+  <div class="callout blue"><p><strong>Why no interval sessions?</strong> Marathon energy is almost entirely aerobic. Dedicated VO2 intervals carry a 48-72hr recovery cost that competes with the volume and threshold work that actually move a marathon. Your two 10K B-races supply all the fast stimulus you need early on, and strides keep the legs sharp at no recovery cost.</p></div>
+</div>
+
+<div id="panel-strength" class="panel">
+  <div class="str-tabs">
+    <button class="str-tab active-a" onclick="switchStrength('a',this)">Session A · Lower</button>
+    <button class="str-tab" onclick="switchStrength('b',this)">Session B · Upper</button>
+  </div>
+  <div id="str-a" class="str-panel active">
+    <div class="str-intro"><strong>Wednesday · running strength and prehab.</strong> Mid-week, clear of the long run, with Thursday's rest before Friday's quality. No injury history, so this is general durability: single-leg control, posterior chain, calves and shins. Reduce 30% in deload weeks, 20% in peak week, 40-50% in taper. Skip race week.</div>
+    <div class="exercise-card"><div class="ex-main"><div class="ex-name">Goblet or back squat</div><div class="ex-note">Controlled descent, knees track over the toes. Add load when 3 × 8 feels easy.</div></div><div class="ex-sets">3 × 8</div></div>
+    <div class="exercise-card"><div class="ex-main"><div class="ex-name">Romanian deadlift</div><div class="ex-note">Hinge at the hip, soft knees. Hamstrings and glutes, the marathon engine.</div></div><div class="ex-sets">3 × 8</div></div>
+    <div class="exercise-card"><div class="ex-main"><div class="ex-name">Bulgarian split squat</div><div class="ex-note">Rear foot elevated. Single-leg strength and balance. Control the descent.</div></div><div class="ex-sets">3 × 10/leg</div></div>
+    <div class="exercise-card"><div class="ex-main"><div class="ex-name">Single-leg calf raise · off step</div><div class="ex-note">Slow 3-count lower, full range. Calf and Achilles robustness for the long-run load.</div></div><div class="ex-sets">3 × 12/leg</div></div>
+    <div class="exercise-card"><div class="ex-main"><div class="ex-name">Single-leg glute bridge</div><div class="ex-note">Full hip extension at the top every rep. Keeps the pelvis stable late in long runs.</div></div><div class="ex-sets">3 × 12/leg</div></div>
+    <div class="exercise-card"><div class="ex-main"><div class="ex-name">Side plank with top-leg lift</div><div class="ex-note">Glute med and lateral core. Hold steady, do not let the hips drop.</div></div><div class="ex-sets">3 × 30s/side</div></div>
+    <div class="exercise-card"><div class="ex-main"><div class="ex-name">Tibialis raise · wall or band</div><div class="ex-note">Slow dorsiflexion against resistance. Lowers shin-splint risk as volume climbs.</div></div><div class="ex-sets">3 × 20</div></div>
+  </div>
+  <div id="str-b" class="str-panel">
+    <div class="str-intro"><strong>Monday · after the easy run, spares the legs.</strong> Sits the day after the Sunday long run on purpose: upper body builds robustness without fatiguing the running muscles. Reduce 20% from Week 14, 40-50% in taper. Skip race week.</div>
+    <div class="exercise-card"><div class="ex-main"><div class="ex-name">Bench press or DB chest press</div><div class="ex-note">Primary push. Control the descent, full range, 1-2 reps in reserve.</div></div><div class="ex-sets">3 × 8-10</div></div>
+    <div class="exercise-card"><div class="ex-main"><div class="ex-name">Chest-supported row</div><div class="ex-note">Primary pull. Squeeze the shoulder blades at the top of each rep.</div></div><div class="ex-sets">3 × 10</div></div>
+    <div class="exercise-card"><div class="ex-main"><div class="ex-name">Overhead press</div><div class="ex-note">Brace the core. Do not arch aggressively through the lower back.</div></div><div class="ex-sets">3 × 8</div></div>
+    <div class="exercise-card"><div class="ex-main"><div class="ex-name">Lat pulldown or assisted pull-up</div><div class="ex-note">Full range. Progress towards bodyweight pull-ups over the block.</div></div><div class="ex-sets">3 × 8-10</div></div>
+    <div class="exercise-card"><div class="ex-main"><div class="ex-name">Face pull</div><div class="ex-note">Rear delts and posture. Light and clean, do not skip.</div></div><div class="ex-sets">3 × 15</div></div>
+    <div class="exercise-card"><div class="ex-main"><div class="ex-name">Dead bug</div><div class="ex-note">Anti-extension core. Breathe out as you lower. Lower back stays flat.</div></div><div class="ex-sets">3 × 8/side</div></div>
+  </div>
+</div>
+
+<div id="panel-notes" class="panel">
+  <div class="notes-subnav">
+    <button class="notes-sub-btn active" onclick="switchNotes('assessment',this)">Assessment</button>
+    <button class="notes-sub-btn" onclick="switchNotes('fuelling',this)">Fuelling</button>
+    <button class="notes-sub-btn" onclick="switchNotes('raceday',this)">Race Day</button>
+    <button class="notes-sub-btn" onclick="switchNotes('decisions',this)">Decisions</button>
+  </div>
+  <div id="notes-assessment" class="notes-section active">
+    <div class="n-card"><h3>Predictor Models</h3>
+      <table class="n-table"><tr><th>Model</th><th>Source</th><th>Predicts</th></tr>
+      <tr><td>Riegel (1.06)</td><td>HM 2:02:27</td><td class="mono"><strong>4:15:18</strong></td></tr>
+      <tr><td>Riegel (1.10, less specific)</td><td>HM 2:02:27</td><td class="mono">4:22:25</td></tr>
+      <tr><td>Multiplier × 2.16</td><td>HM 2:02:27</td><td class="mono">4:24:30</td></tr>
+      <tr><td>Your marathon best</td><td>fuelling-limited</td><td class="mono">4:44</td></tr></table>
+      <div class="callout blue" style="margin-top:10px"><p><strong>Verdict:</strong> the engine is worth around 4:15 to 4:25. The gap between that and your 4:44 best is not speed, it is marathon-specific endurance and fuelling execution. Both blow-ups came at 30km. This block closes the endurance gap and rehearses the fuelling. <strong>4:20 is a fair Goal A; sub-4:30 is the realistic floor.</strong></p></div>
+    </div>
+    <div class="n-card"><h3>What This Block Must Deliver</h3><ul>
+      <li><strong>Volume:</strong> rebuild from ~13km/week to a sustainable peak near 52km, injury-free, not maximal</li>
+      <li><strong>MP endurance:</strong> 11km at 6:05-6:10/km inside a 30km long run on tired legs (Week 11)</li>
+      <li><strong>Threshold ceiling:</strong> T-pace tightening from 5:44 to 5:32/km across four tiers</li>
+      <li><strong>Gut training:</strong> absorbing 50-60g carbs/hour on long runs without distress by Week 11</li>
+      <li><strong>Dress rehearsal:</strong> the 20 Sep half, run with the exact race-day fuelling and kit</li>
+    </ul></div>
+    <div class="n-card"><h3>Long Run and MP Progression</h3>
+      <p>Long runs step 10 → 15 → 17 → 19 → 22 → 24 → <strong>30</strong> (peak, Week 11), then 25, then taper. The 30km peak is deliberate: both your marathons fell apart at 30km, so you need to have run to and through that point in training, fully fuelled, before race day.</p>
+      <p>MP blocks respect the 40% week-on-week rule: 6km (Wk 8) → 8km (Wk 10) → 11km (Wk 11 peak) → 8km (Wk 13). The 11km peak sits inside the 30km long run.</p>
+    </div>
+    <div class="n-card"><h3>Menstrual Cycle</h3>
+      <p>You have flagged the menstrual phase as your hard window and you are tracking a regular 29-day cycle. The one weekly quality session is movable: if Friday's quality or a key long run lands on day 1-2 of your period and you feel flat or heavy, that is physiology, not weakness. Downgrade to easy and shift the quality by a day or two using the edit and drag tools. A regular cycle is also a useful signal that your energy intake is adequate (see Fuelling).</p>
+    </div>
+  </div>
+  <div id="notes-fuelling" class="notes-section">
+    <div class="n-card"><h3>Fuelling is the headline of this block</h3>
+      <p>You named fuelling as what has held you back, and both marathons confirmed it at 30km. Late-race collapse in a trained runner is almost always a fuelling failure, not a fitness failure. Fixing this is worth more minutes than any session in the plan.</p>
+      <div class="callout red"><p><strong>This is not the block to run an energy deficit.</strong> You have said you are actively cutting. Under-eating during a marathon build works directly against your number one limiter: it lowers the glycogen you can store, blunts gut training, slows recovery, and raises injury risk. A regular period is a good sign your energy availability is currently adequate, keep it that way. Hold body-composition goals until after Abingdon, then resume. If your cycle becomes irregular during the block, treat that as a flag to eat more, not train more, and speak to your GP.</p></div>
+    </div>
+    <div class="n-card"><h3>Daily Targets (~72kg)</h3>
+      <table class="n-table"><tr><th>Day type</th><th>Carbs g/kg</th><th>For ~72kg</th></tr>
+      <tr><td>Rest / easy</td><td>5-7</td><td class="mono">360-505g</td></tr>
+      <tr><td>Quality day (Fri)</td><td>7-8</td><td class="mono">505-575g</td></tr>
+      <tr><td>Long run day (Sun)</td><td>8-10</td><td class="mono">575-720g</td></tr>
+      <tr><td>Carb load (race week)</td><td>8-10</td><td class="mono">575-720g</td></tr></table>
+      <p style="margin-top:10px"><strong>Protein:</strong> ~1.8 g/kg = ~130g/day. 25-30g within two hours of every session.</p>
+    </div>
+    <div class="n-card"><h3>Long Run Fuelling and Gut Training</h3>
+      <table class="n-table"><tr><th>Run length</th><th>Protocol</th></tr>
+      <tr><td>Under 75min</td><td>Optional gel at 60min</td></tr>
+      <tr><td>75-120min (Wks 3-7)</td><td>Gel at 20min then every 35min · target ~50g/hr</td></tr>
+      <tr><td>Over 120min (Wks 8+)</td><td>Gel at 20min then every 30min · target 55-60g/hr</td></tr></table>
+      <div class="callout amber"><p>Use a <strong>glucose-plus-fructose</strong> gel (Maurten, SiS Beta Fuel, Precision). The dual sugar uses two gut transporters, so you absorb more with less GI distress, which is exactly your weak point. Train the gut gradually: start at the bottom of the range and build. Never trial anything new on race day.</p></div>
+    </div>
+    <div class="n-card"><h3>Race Week Carb Load</h3><ul>
+      <li><strong>Thu + Fri:</strong> 8-10 g/kg/day. Front-load both days.</li>
+      <li><strong>Sat:</strong> maintenance only, do not overstuff the night before.</li>
+      <li><strong>Eat:</strong> white rice, pasta, bagels, bread, jam, honey, cereal, juice, sports drink.</li>
+      <li><strong>Avoid:</strong> wholemeal, salad, nuts, lentils, heavy sauces, fried food.</li>
+      <li><strong>Expected gain:</strong> 1.5-2.5kg from glycogen and water. That is fuel, not fat.</li>
+    </ul></div>
+  </div>
+  <div id="notes-raceday" class="notes-section">
+    <div class="n-card"><h3>Morning Protocol</h3>
+      <table class="n-table"><tr><th>Time</th><th>Action</th></tr>
+      <tr><td><strong>Wake</strong></td><td>3 hours before start. Up immediately.</td></tr>
+      <tr><td><strong>+15min</strong></td><td>Toast and jam, banana, one coffee (you respond to caffeine). 70-140g carbs. Familiar foods only.</td></tr>
+      <tr><td><strong>+60min</strong></td><td>500ml water with an electrolyte tab. Sip steadily.</td></tr>
+      <tr><td><strong>Start −45min</strong></td><td>Warm-up: leg swings, hip openers, 5min easy jog, 3 × 100m strides.</td></tr>
+      <tr><td><strong>Start −20min</strong></td><td>Stop drinking. Final toilet. Move to the start.</td></tr>
+      <tr><td><strong>Start −5min</strong></td><td>Visualise km 0-5: controlled, 6:20/km, settle in.</td></tr></table>
+    </div>
+    <div class="n-card"><h3>Race Pacing · Three-Phase Progressive</h3>
+      <div class="callout green"><p><strong>Phase 1 (km 0-5):</strong> 6:18-6:22/km. Let it feel too easy. This is the discipline that decides your race. HR 158-167.</p></div>
+      <div class="callout yellow"><p><strong>Phase 2 (km 5-30):</strong> 6:08-6:10/km. Settle into goal rhythm and hold it honest. HR 165-173.</p></div>
+      <div class="callout purple"><p><strong>Phase 3 (km 30-42.2):</strong> hold 6:08-6:10/km. Push only if genuinely strong in the last 5km. HR drifting up is fine.</p></div>
+      <table class="n-table" style="margin-top:10px">
+        <tr><th>Split</th><th>Watch pace</th><th>Cumulative</th></tr>
+        <tr><td>0-5km</td><td class="mono">6:18-6:22</td><td class="mono">~31:40</td></tr>
+        <tr><td>5-30km</td><td class="mono">6:08-6:10</td><td class="mono">~2:45</td></tr>
+        <tr><td><strong>HM split</strong></td><td></td><td class="mono"><strong>~2:10-2:12</strong></td></tr>
+        <tr><td>30-42.2km</td><td class="mono">hold or push</td><td class="mono"><strong>~4:20-4:22</strong></td></tr>
+      </table>
+      <div class="callout amber"><p><strong>The half split will read ~2:10-2:12. Do not panic.</strong> A patient open costs 30-60 seconds in the first 5km and buys you a strong second half. That is by design. Do not try to win it back.</p></div>
+      <div class="callout blue"><p><strong>Why three phases, not four.</strong> Both your previous marathons broke at 30km. The conservative model is the right one until you have proven you can hold pace deep into a race. Once you finish Abingdon controlled, the next build can be more aggressive.</p></div>
+    </div>
+    <div class="n-card"><h3>Race Gel Protocol (~60g/hr)</h3>
+      <table class="n-table"><tr><th>Gel</th><th>Time</th><th>~km</th><th>Type</th></tr>
+      <tr><td>1</td><td class="mono">0:20</td><td class="mono">~3.2</td><td>Standard</td></tr>
+      <tr><td>2</td><td class="mono">0:50</td><td class="mono">~8</td><td>Standard</td></tr>
+      <tr><td>3</td><td class="mono">1:20</td><td class="mono">~13</td><td>Standard</td></tr>
+      <tr><td>4</td><td class="mono">1:50</td><td class="mono">~18</td><td>Standard</td></tr>
+      <tr><td>5</td><td class="mono">2:20</td><td class="mono">~23</td><td>Standard</td></tr>
+      <tr><td>6</td><td class="mono">2:50</td><td class="mono">~28</td><td><strong>Caffeine</strong></td></tr>
+      <tr><td>7</td><td class="mono">3:20</td><td class="mono">~33</td><td><strong>Caffeine</strong></td></tr>
+      <tr><td>8</td><td class="mono">3:50</td><td class="mono">~38</td><td><strong>Caffeine</strong></td></tr></table>
+      <div class="callout red"><p><strong>Gels 7 and 8 (km 33 and 38) are the most important.</strong> This is exactly where you have collapsed before. Take them even if you feel fine, because by the time you feel low it is already too late.</p></div>
+    </div>
+  </div>
+  <div id="notes-decisions" class="notes-section">
+    <div class="n-card"><h3>Half Marathon Recalibration (Sun 20 Sep)</h3>
+      <p>Run at ~95% off reduced volume with no taper, so legs carry some fatigue. A slightly slower time here does not automatically lower the marathon target, interpret it in context.</p>
+      <table class="n-table"><tr><th>B-Race HM</th><th>Marathon target</th><th>Race MP</th></tr>
+      <tr><td class="mono"><strong>Sub-1:55</strong></td><td><strong>4:15-4:18 (stretch)</strong></td><td class="mono">6:00/km</td></tr>
+      <tr><td class="mono"><strong>1:55-1:58</strong></td><td><strong>4:20 Goal A holds</strong></td><td class="mono">6:08/km</td></tr>
+      <tr><td class="mono"><strong>1:58-2:02</strong></td><td><strong>4:25</strong></td><td class="mono">6:16/km</td></tr>
+      <tr><td class="mono"><strong>Over 2:02</strong></td><td><strong>4:30 (Goal B)</strong></td><td class="mono">6:24/km</td></tr></table>
+    </div>
+    <div class="n-card"><h3>Daily Flags</h3><ul>
+      <li><strong>Waking HR 5+ bpm above baseline, 2 mornings running:</strong> drop to easy, no quality.</li>
+      <li><strong>Waking HR 8+ bpm above baseline:</strong> full rest, reassess next morning.</li>
+      <li><strong>Any sharp or persistent pain (shin, calf, knee, foot):</strong> stop, ice, 2 days off if still there.</li>
+      <li><strong>Under 5 hours sleep:</strong> downgrade quality to easy.</li>
+      <li><strong>Day 1-2 of your period and feeling flat:</strong> downgrade and shift the quality, do not force it.</li>
+    </ul></div>
+    <div class="n-card"><h3>Session Signals</h3><ul>
+      <li><strong>Easy pace dropping 15+ sec/km at the same HR over a week:</strong> fatigue building, deload or drop the next quality.</li>
+      <li><strong>Cannot hold MP for the full block:</strong> recalibrate the target down a tier.</li>
+      <li><strong>GI distress on a long run:</strong> back off the carb rate, do not abandon fuelling. Build it again gradually.</li>
+      <li><strong>Peak 30km long run falls apart before 25km:</strong> set Goal B (4:30) as the plan and run it well.</li>
+    </ul></div>
+    <div class="n-card"><h3>One Quality Session Per Week</h3>
+      <p>This block runs one quality session a week throughout. At your volume that is the right call: it protects recovery and lets the easy running do its aerobic job. A second weekly quality session is the natural next step in a future block, once you have completed a full cycle near 50km/week without breakdown.</p>
+    </div>
+    <div class="n-card"><h3>Missed Sessions and Race Week Illness</h3>
+      <p>Do not stack missed sessions. The next session is whatever was already planned, not the missed one bolted on.</p>
+      <div class="callout green"><p><strong>Mild cold, head only, no fever:</strong> race goes ahead.</p></div>
+      <div class="callout red"><p><strong>Chest, lungs or fever:</strong> do not race. There will be other marathons.</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom sheet – do not change -->
+<div class="sheet-overlay" id="sheetOverlay" onclick="closeSheet()"></div>
+<div class="bottom-sheet" id="bottomSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-head">
+    <div class="sheet-type-badge" id="sheetBadge"></div>
+    <div class="sheet-title" id="sheetTitle"></div>
+    <div class="sheet-meta" id="sheetMeta"></div>
+  </div>
+  <div class="sheet-body" id="sheetBody"></div>
+  <button class="sheet-delete" id="sheetDelete" style="display:none" onclick="eaDeleteSession()">Remove session</button>
+  <button class="sheet-close" onclick="closeSheet()">Close</button>
+</div>
+<div class="save-bar hidden" id="saveBarEl">
+  <button class="save-btn" id="saveBtn" onclick="saveState()">Save changes</button>
+  <span class="save-status" id="saveStatus"></span>
+</div>
+
+<!-- Firebase – do not change CDN URLs or config -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script>
+(function(){
+  try{
+    const firebaseConfig={apiKey:"AIzaSyC5QoBcLCQR-YwDzLL9FSuHtYd2LbzSHDQ",authDomain:"runner-plan-host.firebaseapp.com",projectId:"runner-plan-host",storageBucket:"runner-plan-host.firebasestorage.app",messagingSenderId:"111197627239",appId:"1:111197627239:web:5d16ed974c66b9ec6a45c2"};
+    firebase.initializeApp(firebaseConfig);
+    const db=firebase.firestore();
+    const PLAN_ID=new URLSearchParams(window.location.search).get('plan')||'sophie-abingdon-2026';/* ← ATHLETE DATA */
+    window.fbSave=async function(s){await db.collection('plans').doc(PLAN_ID).set(s,{merge:true});};
+    window.fbLoad=async function(){const snap=await db.collection('plans').doc(PLAN_ID).get();return snap.exists?snap.data():null;};
+    window.dispatchEvent(new Event('firebaseReady'));
+  }catch(e){console.warn('Firebase unavailable:',e);var el=document.getElementById('saveStatus');if(el)el.textContent='Offline mode';}
+})();
+</script>
+
+<script>
+// ══════════════════════════════════════════════════
+// ← ATHLETE DATA: PLAN_DATA
+// Week object: {n, dates, phase, km, tag, desc, days[]}
+// Day object:  {d:'MON', sessions:[{t,title,sub,id,steps[],note}]}
+// t values:    'easy'|'quality'|'long'|'strength'|'rest'|'race'
+// Step prefix: 'w:'warmup 's:'set 'c:'cooldown 'r:'run 'e:'exercise 'n:'note
+// Phase keys:  'base'|'deload-base'|'threshold-ph'|'deload-threshold'|'specific'|'taper'|'race-wk'
+// Tag values:  ''|'Deload'|'PEAK'|'B-Race'|'Race Week'|'VO2 Bridge'
+// ══════════════════════════════════════════════════
+const PLAN_DATA = [{"n": 1, "dates": "29 Jun – 5 Jul", "phase": "base", "km": 21, "tag": "", "desc": "Re-entry. Rebuild the easy-run habit and reawaken the legs with strides.", "days": [{"d": "MON", "sessions": [{"t": "easy", "title": "Recovery Run · 3km", "sub": "3km · HR &lt;139 · very gentle", "id": "w1mon-easy", "steps": ["r:3km in the Recovery zone, heart rate under 139. Very gentle, just turning the legs over."], "note": "Recovery runs sit below the easy zone, in the COROS Recovery band (under 139). If that means walking the hills, walk them. The point is blood flow, not training load."}, {"t": "strength", "title": "Strength B · Upper", "sub": "after the easy run · spares the legs", "id": "w1mon-strB", "steps": ["e:Bench press or DB chest press · 3 × 8-10 · control the descent, full range, 1-2 reps in reserve.", "e:Chest-supported row · 3 × 10 · squeeze the shoulder blades at the top.", "e:Overhead press · 3 × 8 · brace the core, no big arch through the lower back.", "e:Lat pulldown or assisted pull-up · 3 × 8-10 · full range, controlled.", "e:Face pull · 3 × 15 · rear delts and posture, light and clean.", "e:Dead bug · 3 × 8 per side · anti-extension core, lower back stays flat."], "note": "Upper body sits the day after the long run on purpose: it builds robustness without fatiguing the running muscles. Reduce volume in deload, taper and race weeks (see Strength tab)."}]}, {"d": "TUE", "sessions": [{"t": "easy", "title": "Easy Run · 4km", "sub": "4km easy · HR 139-160 · conversational", "id": "w1tue-easy", "steps": ["r:4km easy. Keep heart rate in 139-160. This run is for aerobic volume, not pace.", "s:4 × strides after the run. ~20s smooth, fast-but-relaxed, full walk-back recovery. Neuromuscular, not a workout."], "note": "Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}, {"d": "WED", "sessions": [{"t": "strength", "title": "Strength A · Lower", "sub": "running strength and prehab", "id": "w1wed-strA", "steps": ["e:Goblet or back squat · 3 × 8 · controlled, knees track over the toes.", "e:Romanian deadlift · 3 × 8 · hinge at the hip, feel hamstrings and glutes.", "e:Bulgarian split squat · 3 × 10 per leg · single-leg control and balance.", "e:Single-leg calf raise · 3 × 12 per leg · slow lower, full range. Calf and Achilles robustness.", "e:Single-leg glute bridge · 3 × 12 per leg · full hip extension at the top.", "e:Side plank with top-leg lift · 3 × 30s per side · glute med and lateral core.", "e:Tibialis raise · 3 × 20 · lower-leg balance, lowers shin-splint risk."], "note": "Lower body sits mid-week, clear of the long run and with Thursday's rest before Friday's quality. The aim is durable, not sore. Reduce volume in deload, taper and race weeks."}]}, {"d": "THU", "sessions": []}, {"d": "FRI", "sessions": [{"t": "easy", "title": "Easy Run · 4km", "sub": "4km easy · HR 139-160 · conversational", "id": "w1fri-easy", "steps": ["r:4km easy. Keep heart rate in 139-160. This run is for aerobic volume, not pace.", "s:6 × strides after the run. ~20s smooth, fast-but-relaxed, full walk-back recovery. Neuromuscular, not a workout."], "note": "Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}, {"d": "SAT", "sessions": []}, {"d": "SUN", "sessions": [{"t": "long", "title": "Long Run · 10km", "sub": "10km easy · HR 139-160, cap 160", "id": "w1sun-long", "steps": ["r:10km easy and even. Heart rate capped at 160. Some upward drift in the final 30-40 minutes is normal, do not fight it by slowing hard."], "note": "Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}]}, {"n": 2, "dates": "6–12 Jul", "phase": "base", "km": 24, "tag": "B-Race", "desc": "First checkpoint. The 10km on Sunday is the quality, so the week stays light around it.", "days": [{"d": "MON", "sessions": [{"t": "easy", "title": "Recovery Run · 3km", "sub": "3km · HR &lt;139 · very gentle", "id": "w2mon-easy", "steps": ["r:3km in the Recovery zone, heart rate under 139. Very gentle, just turning the legs over."], "note": "Recovery runs sit below the easy zone, in the COROS Recovery band (under 139). If that means walking the hills, walk them. The point is blood flow, not training load."}, {"t": "strength", "title": "Strength B · Upper", "sub": "after the easy run · spares the legs", "id": "w2mon-strB", "steps": ["e:Bench press or DB chest press · 3 × 8-10 · control the descent, full range, 1-2 reps in reserve.", "e:Chest-supported row · 3 × 10 · squeeze the shoulder blades at the top.", "e:Overhead press · 3 × 8 · brace the core, no big arch through the lower back.", "e:Lat pulldown or assisted pull-up · 3 × 8-10 · full range, controlled.", "e:Face pull · 3 × 15 · rear delts and posture, light and clean.", "e:Dead bug · 3 × 8 per side · anti-extension core, lower back stays flat."], "note": "Upper body sits the day after the long run on purpose: it builds robustness without fatiguing the running muscles. Reduce volume in deload, taper and race weeks (see Strength tab)."}]}, {"d": "TUE", "sessions": [{"t": "easy", "title": "Easy Run · 4km", "sub": "4km easy · HR 139-160 · conversational", "id": "w2tue-easy", "steps": ["r:4km easy. Keep heart rate in 139-160. This run is for aerobic volume, not pace.", "s:4 × strides after the run. ~20s smooth, fast-but-relaxed, full walk-back recovery. Neuromuscular, not a workout."], "note": "Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}, {"d": "WED", "sessions": [{"t": "strength", "title": "Strength A · Lower", "sub": "running strength and prehab", "id": "w2wed-strA", "steps": ["e:Goblet or back squat · 3 × 8 · controlled, knees track over the toes.", "e:Romanian deadlift · 3 × 8 · hinge at the hip, feel hamstrings and glutes.", "e:Bulgarian split squat · 3 × 10 per leg · single-leg control and balance.", "e:Single-leg calf raise · 3 × 12 per leg · slow lower, full range. Calf and Achilles robustness.", "e:Single-leg glute bridge · 3 × 12 per leg · full hip extension at the top.", "e:Side plank with top-leg lift · 3 × 30s per side · glute med and lateral core.", "e:Tibialis raise · 3 × 20 · lower-leg balance, lowers shin-splint risk."], "note": "Lower body sits mid-week, clear of the long run and with Thursday's rest before Friday's quality. The aim is durable, not sore. Reduce volume in deload, taper and race weeks."}]}, {"d": "THU", "sessions": []}, {"d": "FRI", "sessions": [{"t": "quality", "title": "Primer · Easy + Strides", "sub": "4km total", "id": "w2fri-q", "steps": ["w:3km very easy.", "s:4 × 100m strides at smooth race-ish effort, full recovery. Just enough to feel sharp.", "c:1km easy."], "note": "Two days out from a race this opens the legs without adding fatigue. Stay relaxed."}]}, {"d": "SAT", "sessions": []}, {"d": "SUN", "sessions": [{"t": "race", "title": "Saucony 10km · B-Race", "sub": "Sun 12 Jul · 10km race effort", "id": "w2sun-race", "steps": ["w:2km easy plus 4 strides.", "r:10km at a strong, honest race effort. First 2-3km controlled, then build. This is a fitness checkpoint.", "c:1-2km easy jog."], "note": "Average heart rate should land in the Anaerobic Endurance band (179-188). Use the result to recalibrate threshold pace: if it comes out faster than expected, tighten the threshold tier."}]}]}, {"n": 3, "dates": "13–19 Jul", "phase": "base", "km": 31, "tag": "", "desc": "First true threshold. Short reps, conservative pace. Long run steps up.", "days": [{"d": "MON", "sessions": [{"t": "easy", "title": "Recovery Run · 4km", "sub": "4km · HR &lt;139 · very gentle", "id": "w3mon-easy", "steps": ["r:4km in the Recovery zone, heart rate under 139. Very gentle, just turning the legs over."], "note": "Recovery runs sit below the easy zone, in the COROS Recovery band (under 139). If that means walking the hills, walk them. The point is blood flow, not training load."}, {"t": "strength", "title": "Strength B · Upper", "sub": "after the easy run · spares the legs", "id": "w3mon-strB", "steps": ["e:Bench press or DB chest press · 3 × 8-10 · control the descent, full range, 1-2 reps in reserve.", "e:Chest-supported row · 3 × 10 · squeeze the shoulder blades at the top.", "e:Overhead press · 3 × 8 · brace the core, no big arch through the lower back.", "e:Lat pulldown or assisted pull-up · 3 × 8-10 · full range, controlled.", "e:Face pull · 3 × 15 · rear delts and posture, light and clean.", "e:Dead bug · 3 × 8 per side · anti-extension core, lower back stays flat."], "note": "Upper body sits the day after the long run on purpose: it builds robustness without fatiguing the running muscles. Reduce volume in deload, taper and race weeks (see Strength tab)."}]}, {"d": "TUE", "sessions": [{"t": "easy", "title": "Easy Run · 5km", "sub": "5km easy · HR 139-160 · conversational", "id": "w3tue-easy", "steps": ["r:5km easy. Keep heart rate in 139-160. This run is for aerobic volume, not pace.", "s:4 × strides after the run. ~20s smooth, fast-but-relaxed, full walk-back recovery. Neuromuscular, not a workout."], "note": "Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}, {"d": "WED", "sessions": [{"t": "strength", "title": "Strength A · Lower", "sub": "running strength and prehab", "id": "w3wed-strA", "steps": ["e:Goblet or back squat · 3 × 8 · controlled, knees track over the toes.", "e:Romanian deadlift · 3 × 8 · hinge at the hip, feel hamstrings and glutes.", "e:Bulgarian split squat · 3 × 10 per leg · single-leg control and balance.", "e:Single-leg calf raise · 3 × 12 per leg · slow lower, full range. Calf and Achilles robustness.", "e:Single-leg glute bridge · 3 × 12 per leg · full hip extension at the top.", "e:Side plank with top-leg lift · 3 × 30s per side · glute med and lateral core.", "e:Tibialis raise · 3 × 20 · lower-leg balance, lowers shin-splint risk."], "note": "Lower body sits mid-week, clear of the long run and with Thursday's rest before Friday's quality. The aim is durable, not sore. Reduce volume in deload, taper and race weeks."}]}, {"d": "THU", "sessions": []}, {"d": "FRI", "sessions": [{"t": "quality", "title": "Threshold · 3 × 1km", "sub": "7km total", "id": "w3fri-q", "steps": ["w:2km easy building to steady, then 4 strides to open the legs.", "s:3 × 1km at threshold, 5:42-5:46/km. 90s easy jog between reps. Heart rate settles around 174-178.", "c:2km easy. Let the heart rate come down."], "note": "Threshold is comfortably hard, not hard. In theory you could hold this pace for about an hour. If you cannot finish the final rep at pace, you opened too fast. Pace controls this session, not heart rate."}]}, {"d": "SAT", "sessions": []}, {"d": "SUN", "sessions": [{"t": "long", "title": "Long Run · 15km", "sub": "15km easy · HR 139-160, cap 160", "id": "w3sun-long", "steps": ["r:15km easy and even. Heart rate capped at 160. Some upward drift in the final 30-40 minutes is normal, do not fight it by slowing hard."], "note": "Over 75 minutes now: take a gel around 60 minutes to start training the gut gently. Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}]}, {"n": 4, "dates": "20–26 Jul", "phase": "deload-base", "km": 23, "tag": "Deload", "desc": "Holiday week. Fly Wed, back late Sat. All easy, shorter runs, no quality. A natural down week.", "days": [{"d": "MON", "sessions": [{"t": "easy", "title": "Recovery Run · 4km", "sub": "4km · HR &lt;139 · very gentle", "id": "w4mon-easy", "steps": ["r:4km in the Recovery zone, heart rate under 139. Very gentle, just turning the legs over."], "note": "Recovery runs sit below the easy zone, in the COROS Recovery band (under 139). If that means walking the hills, walk them. The point is blood flow, not training load."}, {"t": "strength", "title": "Strength B · Upper", "sub": "after the easy run · spares the legs", "id": "w4mon-strB", "steps": ["e:Bench press or DB chest press · 3 × 8-10 · control the descent, full range, 1-2 reps in reserve.", "e:Chest-supported row · 3 × 10 · squeeze the shoulder blades at the top.", "e:Overhead press · 3 × 8 · brace the core, no big arch through the lower back.", "e:Lat pulldown or assisted pull-up · 3 × 8-10 · full range, controlled.", "e:Face pull · 3 × 15 · rear delts and posture, light and clean.", "e:Dead bug · 3 × 8 per side · anti-extension core, lower back stays flat."], "note": "Upper body sits the day after the long run on purpose: it builds robustness without fatiguing the running muscles. Reduce volume in deload, taper and race weeks (see Strength tab)."}]}, {"d": "TUE", "sessions": [{"t": "easy", "title": "Easy Run · 5km", "sub": "5km easy · HR 139-160 · conversational", "id": "w4tue-easy", "steps": ["r:5km easy. Keep heart rate in 139-160. This run is for aerobic volume, not pace.", "s:4 × strides after the run. ~20s smooth, fast-but-relaxed, full walk-back recovery. Neuromuscular, not a workout."], "note": "Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}, {"d": "WED", "sessions": [{"t": "strength", "title": "Travel day · skip", "sub": "flying out, no gym", "id": "w4wed-note", "steps": ["n:Flying out today. Skip the gym. A short walk and some light mobility is plenty."], "note": "Holiday weeks are for keeping the engine ticking over, not building. Enjoy it."}]}, {"d": "THU", "sessions": []}, {"d": "FRI", "sessions": [{"t": "easy", "title": "Easy Run · 4km", "sub": "4km easy · HR 139-160 · conversational", "id": "w4fri-easy", "steps": ["r:4km easy. Keep heart rate in 139-160. This run is for aerobic volume, not pace."], "note": "Easy run wherever you are. Treadmill, road or trail all fine. Keep it gentle."}]}, {"d": "SAT", "sessions": []}, {"d": "SUN", "sessions": [{"t": "long", "title": "Long Run · 10km", "sub": "10km easy · HR 139-160, cap 160", "id": "w4sun-long", "steps": ["r:10km easy and even. Heart rate capped at 160. Some upward drift in the final 30-40 minutes is normal, do not fight it by slowing hard."], "note": "Easy holiday long run. If it is hot, slow down and run on heart rate, not pace. Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}]}, {"n": 5, "dates": "27 Jul – 2 Aug", "phase": "base", "km": 35, "tag": "", "desc": "Back into it. Threshold lengthens, long run reaches 17km.", "days": [{"d": "MON", "sessions": [{"t": "easy", "title": "Recovery Run · 4km", "sub": "4km · HR &lt;139 · very gentle", "id": "w5mon-easy", "steps": ["r:4km in the Recovery zone, heart rate under 139. Very gentle, just turning the legs over."], "note": "Recovery runs sit below the easy zone, in the COROS Recovery band (under 139). If that means walking the hills, walk them. The point is blood flow, not training load."}, {"t": "strength", "title": "Strength B · Upper", "sub": "after the easy run · spares the legs", "id": "w5mon-strB", "steps": ["e:Bench press or DB chest press · 3 × 8-10 · control the descent, full range, 1-2 reps in reserve.", "e:Chest-supported row · 3 × 10 · squeeze the shoulder blades at the top.", "e:Overhead press · 3 × 8 · brace the core, no big arch through the lower back.", "e:Lat pulldown or assisted pull-up · 3 × 8-10 · full range, controlled.", "e:Face pull · 3 × 15 · rear delts and posture, light and clean.", "e:Dead bug · 3 × 8 per side · anti-extension core, lower back stays flat."], "note": "Upper body sits the day after the long run on purpose: it builds robustness without fatiguing the running muscles. Reduce volume in deload, taper and race weeks (see Strength tab)."}]}, {"d": "TUE", "sessions": [{"t": "easy", "title": "Easy Run · 6km", "sub": "6km easy · HR 139-160 · conversational", "id": "w5tue-easy", "steps": ["r:6km easy. Keep heart rate in 139-160. This run is for aerobic volume, not pace.", "s:4 × strides after the run. ~20s smooth, fast-but-relaxed, full walk-back recovery. Neuromuscular, not a workout."], "note": "Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}, {"d": "WED", "sessions": [{"t": "strength", "title": "Strength A · Lower", "sub": "running strength and prehab", "id": "w5wed-strA", "steps": ["e:Goblet or back squat · 3 × 8 · controlled, knees track over the toes.", "e:Romanian deadlift · 3 × 8 · hinge at the hip, feel hamstrings and glutes.", "e:Bulgarian split squat · 3 × 10 per leg · single-leg control and balance.", "e:Single-leg calf raise · 3 × 12 per leg · slow lower, full range. Calf and Achilles robustness.", "e:Single-leg glute bridge · 3 × 12 per leg · full hip extension at the top.", "e:Side plank with top-leg lift · 3 × 30s per side · glute med and lateral core.", "e:Tibialis raise · 3 × 20 · lower-leg balance, lowers shin-splint risk."], "note": "Lower body sits mid-week, clear of the long run and with Thursday's rest before Friday's quality. The aim is durable, not sore. Reduce volume in deload, taper and race weeks."}]}, {"d": "THU", "sessions": []}, {"d": "FRI", "sessions": [{"t": "quality", "title": "Threshold · 4 × 1km", "sub": "8km total", "id": "w5fri-q", "steps": ["w:2km easy building to steady, then 4 strides to open the legs.", "s:4 × 1km at threshold, 5:40-5:44/km. 90s easy jog between reps. Heart rate settles around 174-178.", "c:2km easy. Let the heart rate come down."], "note": "Threshold is comfortably hard, not hard. In theory you could hold this pace for about an hour. If you cannot finish the final rep at pace, you opened too fast. Pace controls this session, not heart rate."}]}, {"d": "SAT", "sessions": []}, {"d": "SUN", "sessions": [{"t": "long", "title": "Long Run · 17km", "sub": "17km easy · HR 139-160, cap 160", "id": "w5sun-long", "steps": ["r:17km easy and even. Heart rate capped at 160. Some upward drift in the final 30-40 minutes is normal, do not fight it by slowing hard."], "note": "Rehearse fuelling: gel at 20 minutes then every 35 minutes, aim for ~50g carbs per hour. Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}]}, {"n": 6, "dates": "3–9 Aug", "phase": "threshold-ph", "km": 26, "tag": "B-Race", "desc": "Second 10km checkpoint. Recalibrate threshold off the result. Light week around the race.", "days": [{"d": "MON", "sessions": [{"t": "easy", "title": "Recovery Run · 4km", "sub": "4km · HR &lt;139 · very gentle", "id": "w6mon-easy", "steps": ["r:4km in the Recovery zone, heart rate under 139. Very gentle, just turning the legs over."], "note": "Recovery runs sit below the easy zone, in the COROS Recovery band (under 139). If that means walking the hills, walk them. The point is blood flow, not training load."}, {"t": "strength", "title": "Strength B · Upper", "sub": "after the easy run · spares the legs", "id": "w6mon-strB", "steps": ["e:Bench press or DB chest press · 3 × 8-10 · control the descent, full range, 1-2 reps in reserve.", "e:Chest-supported row · 3 × 10 · squeeze the shoulder blades at the top.", "e:Overhead press · 3 × 8 · brace the core, no big arch through the lower back.", "e:Lat pulldown or assisted pull-up · 3 × 8-10 · full range, controlled.", "e:Face pull · 3 × 15 · rear delts and posture, light and clean.", "e:Dead bug · 3 × 8 per side · anti-extension core, lower back stays flat."], "note": "Upper body sits the day after the long run on purpose: it builds robustness without fatiguing the running muscles. Reduce volume in deload, taper and race weeks (see Strength tab)."}]}, {"d": "TUE", "sessions": [{"t": "easy", "title": "Easy Run · 5km", "sub": "5km easy · HR 139-160 · conversational", "id": "w6tue-easy", "steps": ["r:5km easy. Keep heart rate in 139-160. This run is for aerobic volume, not pace.", "s:4 × strides after the run. ~20s smooth, fast-but-relaxed, full walk-back recovery. Neuromuscular, not a workout."], "note": "Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}, {"d": "WED", "sessions": [{"t": "strength", "title": "Strength A · Lower", "sub": "running strength and prehab", "id": "w6wed-strA", "steps": ["e:Goblet or back squat · 3 × 8 · controlled, knees track over the toes.", "e:Romanian deadlift · 3 × 8 · hinge at the hip, feel hamstrings and glutes.", "e:Bulgarian split squat · 3 × 10 per leg · single-leg control and balance.", "e:Single-leg calf raise · 3 × 12 per leg · slow lower, full range. Calf and Achilles robustness.", "e:Single-leg glute bridge · 3 × 12 per leg · full hip extension at the top.", "e:Side plank with top-leg lift · 3 × 30s per side · glute med and lateral core.", "e:Tibialis raise · 3 × 20 · lower-leg balance, lowers shin-splint risk."], "note": "Lower body sits mid-week, clear of the long run and with Thursday's rest before Friday's quality. The aim is durable, not sore. Reduce volume in deload, taper and race weeks."}]}, {"d": "THU", "sessions": []}, {"d": "FRI", "sessions": [{"t": "quality", "title": "Primer · Easy + Strides", "sub": "4km total", "id": "w6fri-q", "steps": ["w:3km very easy.", "s:4 × 100m strides at smooth race-ish effort, full recovery. Just enough to feel sharp.", "c:1km easy."], "note": "Two days out from a race this opens the legs without adding fatigue. Stay relaxed."}]}, {"d": "SAT", "sessions": []}, {"d": "SUN", "sessions": [{"t": "race", "title": "Burnham Beeches 10km · B-Race", "sub": "Sun 9 Aug · 10km race effort", "id": "w6sun-race", "steps": ["w:2km easy plus 4 strides.", "r:10km at a strong, honest race effort. First 2-3km controlled, then build. This is a fitness checkpoint.", "c:1-2km easy jog."], "note": "Average heart rate should land in the Anaerobic Endurance band (179-188). Use the result to recalibrate threshold pace: if it comes out faster than expected, tighten the threshold tier."}]}]}, {"n": 7, "dates": "10–16 Aug", "phase": "threshold-ph", "km": 40, "tag": "", "desc": "Threshold tier 2. Reps lengthen to 2km. Long run reaches 19km.", "days": [{"d": "MON", "sessions": [{"t": "easy", "title": "Recovery Run · 5km", "sub": "5km · HR &lt;139 · very gentle", "id": "w7mon-easy", "steps": ["r:5km in the Recovery zone, heart rate under 139. Very gentle, just turning the legs over."], "note": "Recovery runs sit below the easy zone, in the COROS Recovery band (under 139). If that means walking the hills, walk them. The point is blood flow, not training load."}, {"t": "strength", "title": "Strength B · Upper", "sub": "after the easy run · spares the legs", "id": "w7mon-strB", "steps": ["e:Bench press or DB chest press · 3 × 8-10 · control the descent, full range, 1-2 reps in reserve.", "e:Chest-supported row · 3 × 10 · squeeze the shoulder blades at the top.", "e:Overhead press · 3 × 8 · brace the core, no big arch through the lower back.", "e:Lat pulldown or assisted pull-up · 3 × 8-10 · full range, controlled.", "e:Face pull · 3 × 15 · rear delts and posture, light and clean.", "e:Dead bug · 3 × 8 per side · anti-extension core, lower back stays flat."], "note": "Upper body sits the day after the long run on purpose: it builds robustness without fatiguing the running muscles. Reduce volume in deload, taper and race weeks (see Strength tab)."}]}, {"d": "TUE", "sessions": [{"t": "easy", "title": "Easy Run · 6km", "sub": "6km easy · HR 139-160 · conversational", "id": "w7tue-easy", "steps": ["r:6km easy. Keep heart rate in 139-160. This run is for aerobic volume, not pace.", "s:4 × strides after the run. ~20s smooth, fast-but-relaxed, full walk-back recovery. Neuromuscular, not a workout."], "note": "Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}, {"d": "WED", "sessions": [{"t": "strength", "title": "Strength A · Lower", "sub": "running strength and prehab", "id": "w7wed-strA", "steps": ["e:Goblet or back squat · 3 × 8 · controlled, knees track over the toes.", "e:Romanian deadlift · 3 × 8 · hinge at the hip, feel hamstrings and glutes.", "e:Bulgarian split squat · 3 × 10 per leg · single-leg control and balance.", "e:Single-leg calf raise · 3 × 12 per leg · slow lower, full range. Calf and Achilles robustness.", "e:Single-leg glute bridge · 3 × 12 per leg · full hip extension at the top.", "e:Side plank with top-leg lift · 3 × 30s per side · glute med and lateral core.", "e:Tibialis raise · 3 × 20 · lower-leg balance, lowers shin-splint risk."], "note": "Lower body sits mid-week, clear of the long run and with Thursday's rest before Friday's quality. The aim is durable, not sore. Reduce volume in deload, taper and race weeks."}]}, {"d": "THU", "sessions": []}, {"d": "FRI", "sessions": [{"t": "quality", "title": "Threshold · 3 × 2km", "sub": "10km total", "id": "w7fri-q", "steps": ["w:2km easy building to steady, then 4 strides to open the legs.", "s:3 × 2km at threshold, 5:36-5:40/km. 75s easy jog between reps. Heart rate settles around 174-178.", "c:2km easy. Let the heart rate come down."], "note": "Threshold is comfortably hard, not hard. In theory you could hold this pace for about an hour. If you cannot finish the final rep at pace, you opened too fast. Pace controls this session, not heart rate."}]}, {"d": "SAT", "sessions": []}, {"d": "SUN", "sessions": [{"t": "long", "title": "Long Run · 19km", "sub": "19km easy · HR 139-160, cap 160", "id": "w7sun-long", "steps": ["r:19km easy and even. Heart rate capped at 160. Some upward drift in the final 30-40 minutes is normal, do not fight it by slowing hard."], "note": "Gel at 20 minutes then every 35 minutes, ~55g carbs per hour. Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}]}, {"n": 8, "dates": "17–23 Aug", "phase": "threshold-ph", "km": 44, "tag": "", "desc": "First marathon-pace block inside the long run. The specific work begins.", "days": [{"d": "MON", "sessions": [{"t": "easy", "title": "Recovery Run · 5km", "sub": "5km · HR &lt;139 · very gentle", "id": "w8mon-easy", "steps": ["r:5km in the Recovery zone, heart rate under 139. Very gentle, just turning the legs over."], "note": "Recovery runs sit below the easy zone, in the COROS Recovery band (under 139). If that means walking the hills, walk them. The point is blood flow, not training load."}, {"t": "strength", "title": "Strength B · Upper", "sub": "after the easy run · spares the legs", "id": "w8mon-strB", "steps": ["e:Bench press or DB chest press · 3 × 8-10 · control the descent, full range, 1-2 reps in reserve.", "e:Chest-supported row · 3 × 10 · squeeze the shoulder blades at the top.", "e:Overhead press · 3 × 8 · brace the core, no big arch through the lower back.", "e:Lat pulldown or assisted pull-up · 3 × 8-10 · full range, controlled.", "e:Face pull · 3 × 15 · rear delts and posture, light and clean.", "e:Dead bug · 3 × 8 per side · anti-extension core, lower back stays flat."], "note": "Upper body sits the day after the long run on purpose: it builds robustness without fatiguing the running muscles. Reduce volume in deload, taper and race weeks (see Strength tab)."}]}, {"d": "TUE", "sessions": [{"t": "easy", "title": "Easy Run · 7km", "sub": "7km easy · HR 139-160 · conversational", "id": "w8tue-easy", "steps": ["r:7km easy. Keep heart rate in 139-160. This run is for aerobic volume, not pace.", "s:4 × strides after the run. ~20s smooth, fast-but-relaxed, full walk-back recovery. Neuromuscular, not a workout."], "note": "Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}, {"d": "WED", "sessions": [{"t": "strength", "title": "Strength A · Lower", "sub": "running strength and prehab", "id": "w8wed-strA", "steps": ["e:Goblet or back squat · 3 × 8 · controlled, knees track over the toes.", "e:Romanian deadlift · 3 × 8 · hinge at the hip, feel hamstrings and glutes.", "e:Bulgarian split squat · 3 × 10 per leg · single-leg control and balance.", "e:Single-leg calf raise · 3 × 12 per leg · slow lower, full range. Calf and Achilles robustness.", "e:Single-leg glute bridge · 3 × 12 per leg · full hip extension at the top.", "e:Side plank with top-leg lift · 3 × 30s per side · glute med and lateral core.", "e:Tibialis raise · 3 × 20 · lower-leg balance, lowers shin-splint risk."], "note": "Lower body sits mid-week, clear of the long run and with Thursday's rest before Friday's quality. The aim is durable, not sore. Reduce volume in deload, taper and race weeks."}]}, {"d": "THU", "sessions": []}, {"d": "FRI", "sessions": [{"t": "quality", "title": "Threshold · 2 × 3km", "sub": "10km total", "id": "w8fri-q", "steps": ["w:2km easy building to steady, then 4 strides to open the legs.", "s:2 × 3km at threshold, 5:36-5:40/km. 90s easy jog between reps. Heart rate settles around 174-178.", "c:2km easy. Let the heart rate come down."], "note": "Threshold is comfortably hard, not hard. In theory you could hold this pace for about an hour. If you cannot finish the final rep at pace, you opened too fast. Pace controls this session, not heart rate."}]}, {"d": "SAT", "sessions": []}, {"d": "SUN", "sessions": [{"t": "long", "title": "Long Run · 22km · 6km MP", "sub": "16km easy + 6km @ 6:05-6:10/km", "id": "w8sun-long", "steps": ["r:16km easy, heart rate capped at 160. Fuel from 20 minutes in.", "s:6km at marathon pace, 6:05-6:10/km, on tired legs. Pace controls now. Heart rate will rise into the 160s, that is correct."], "note": "Practise race fuelling on every long run from here: a gel at 20 minutes then one every 30 minutes, target 50-60g of carbs per hour. Use a glucose-plus-fructose gel (Maurten, SiS Beta Fuel, Precision) to lower the chance of GI upset. This is the session that fixes the 30km wall."}]}]}, {"n": 9, "dates": "24–30 Aug", "phase": "deload-threshold", "km": 32, "tag": "Deload", "desc": "Deload. Volume drops about a quarter, one short quality kept. Absorb the work.", "days": [{"d": "MON", "sessions": [{"t": "easy", "title": "Recovery Run · 4km", "sub": "4km · HR &lt;139 · very gentle", "id": "w9mon-easy", "steps": ["r:4km in the Recovery zone, heart rate under 139. Very gentle, just turning the legs over."], "note": "Recovery runs sit below the easy zone, in the COROS Recovery band (under 139). If that means walking the hills, walk them. The point is blood flow, not training load."}, {"t": "strength", "title": "Strength B · Upper", "sub": "after the easy run · spares the legs", "id": "w9mon-strB", "steps": ["e:Bench press or DB chest press · 3 × 8-10 · control the descent, full range, 1-2 reps in reserve.", "e:Chest-supported row · 3 × 10 · squeeze the shoulder blades at the top.", "e:Overhead press · 3 × 8 · brace the core, no big arch through the lower back.", "e:Lat pulldown or assisted pull-up · 3 × 8-10 · full range, controlled.", "e:Face pull · 3 × 15 · rear delts and posture, light and clean.", "e:Dead bug · 3 × 8 per side · anti-extension core, lower back stays flat."], "note": "Upper body sits the day after the long run on purpose: it builds robustness without fatiguing the running muscles. Reduce volume in deload, taper and race weeks (see Strength tab)."}]}, {"d": "TUE", "sessions": [{"t": "easy", "title": "Easy Run · 5km", "sub": "5km easy · HR 139-160 · conversational", "id": "w9tue-easy", "steps": ["r:5km easy. Keep heart rate in 139-160. This run is for aerobic volume, not pace.", "s:4 × strides after the run. ~20s smooth, fast-but-relaxed, full walk-back recovery. Neuromuscular, not a workout."], "note": "Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}, {"d": "WED", "sessions": [{"t": "strength", "title": "Strength A · Lower", "sub": "running strength and prehab", "id": "w9wed-strA", "steps": ["e:Goblet or back squat · 3 × 8 · controlled, knees track over the toes.", "e:Romanian deadlift · 3 × 8 · hinge at the hip, feel hamstrings and glutes.", "e:Bulgarian split squat · 3 × 10 per leg · single-leg control and balance.", "e:Single-leg calf raise · 3 × 12 per leg · slow lower, full range. Calf and Achilles robustness.", "e:Single-leg glute bridge · 3 × 12 per leg · full hip extension at the top.", "e:Side plank with top-leg lift · 3 × 30s per side · glute med and lateral core.", "e:Tibialis raise · 3 × 20 · lower-leg balance, lowers shin-splint risk."], "note": "Lower body sits mid-week, clear of the long run and with Thursday's rest before Friday's quality. The aim is durable, not sore. Reduce volume in deload, taper and race weeks."}]}, {"d": "THU", "sessions": []}, {"d": "FRI", "sessions": [{"t": "quality", "title": "Threshold · 3 × 1km", "sub": "7km total", "id": "w9fri-q", "steps": ["w:2km easy building to steady, then 4 strides to open the legs.", "s:3 × 1km at threshold, 5:34-5:38/km. 90s easy jog between reps. Heart rate settles around 174-178.", "c:2km easy. Let the heart rate come down."], "note": "Threshold is comfortably hard, not hard. In theory you could hold this pace for about an hour. If you cannot finish the final rep at pace, you opened too fast. Pace controls this session, not heart rate."}]}, {"d": "SAT", "sessions": []}, {"d": "SUN", "sessions": [{"t": "long", "title": "Long Run · 16km", "sub": "16km easy · HR 139-160, cap 160", "id": "w9sun-long", "steps": ["r:16km easy and even. Heart rate capped at 160. Some upward drift in the final 30-40 minutes is normal, do not fight it by slowing hard."], "note": "Easy long run, light fuelling. Let the body soak up the last three weeks. Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}]}, {"n": 10, "dates": "31 Aug – 6 Sep", "phase": "specific", "km": 45, "tag": "", "desc": "Specific phase. Standalone MP tempo on Friday, MP block grows in the long run.", "days": [{"d": "MON", "sessions": [{"t": "easy", "title": "Recovery Run · 5km", "sub": "5km · HR &lt;139 · very gentle", "id": "w10mon-easy", "steps": ["r:5km in the Recovery zone, heart rate under 139. Very gentle, just turning the legs over."], "note": "Recovery runs sit below the easy zone, in the COROS Recovery band (under 139). If that means walking the hills, walk them. The point is blood flow, not training load."}, {"t": "strength", "title": "Strength B · Upper", "sub": "after the easy run · spares the legs", "id": "w10mon-strB", "steps": ["e:Bench press or DB chest press · 3 × 8-10 · control the descent, full range, 1-2 reps in reserve.", "e:Chest-supported row · 3 × 10 · squeeze the shoulder blades at the top.", "e:Overhead press · 3 × 8 · brace the core, no big arch through the lower back.", "e:Lat pulldown or assisted pull-up · 3 × 8-10 · full range, controlled.", "e:Face pull · 3 × 15 · rear delts and posture, light and clean.", "e:Dead bug · 3 × 8 per side · anti-extension core, lower back stays flat."], "note": "Upper body sits the day after the long run on purpose: it builds robustness without fatiguing the running muscles. Reduce volume in deload, taper and race weeks (see Strength tab)."}]}, {"d": "TUE", "sessions": [{"t": "easy", "title": "Easy Run · 7km", "sub": "7km easy · HR 139-160 · conversational", "id": "w10tue-easy", "steps": ["r:7km easy. Keep heart rate in 139-160. This run is for aerobic volume, not pace.", "s:4 × strides after the run. ~20s smooth, fast-but-relaxed, full walk-back recovery. Neuromuscular, not a workout."], "note": "Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}, {"d": "WED", "sessions": [{"t": "strength", "title": "Strength A · Lower", "sub": "running strength and prehab", "id": "w10wed-strA", "steps": ["e:Goblet or back squat · 3 × 8 · controlled, knees track over the toes.", "e:Romanian deadlift · 3 × 8 · hinge at the hip, feel hamstrings and glutes.", "e:Bulgarian split squat · 3 × 10 per leg · single-leg control and balance.", "e:Single-leg calf raise · 3 × 12 per leg · slow lower, full range. Calf and Achilles robustness.", "e:Single-leg glute bridge · 3 × 12 per leg · full hip extension at the top.", "e:Side plank with top-leg lift · 3 × 30s per side · glute med and lateral core.", "e:Tibialis raise · 3 × 20 · lower-leg balance, lowers shin-splint risk."], "note": "Lower body sits mid-week, clear of the long run and with Thursday's rest before Friday's quality. The aim is durable, not sore. Reduce volume in deload, taper and race weeks."}]}, {"d": "THU", "sessions": []}, {"d": "FRI", "sessions": [{"t": "quality", "title": "Marathon Pace · 6km", "sub": "9km total", "id": "w10fri-q", "steps": ["w:2km easy to warm up.", "s:6km continuous at marathon pace, 6:05-6:10/km. This is your goal race rhythm. Lock it in and hold it steady.", "c:1km easy."], "note": "Marathon pace should feel almost too easy early. The skill is holding it honest when it stops feeling easy. Pace controls, not heart rate."}]}, {"d": "SAT", "sessions": []}, {"d": "SUN", "sessions": [{"t": "long", "title": "Long Run · 24km · 8km MP", "sub": "16km easy + 8km @ 6:05-6:10/km", "id": "w10sun-long", "steps": ["r:16km easy, heart rate capped at 160. Fuel from 20 minutes in.", "s:8km at marathon pace, 6:05-6:10/km, on tired legs. Pace controls now. Heart rate will rise into the 160s, that is correct."], "note": "Practise race fuelling on every long run from here: a gel at 20 minutes then one every 30 minutes, target 50-60g of carbs per hour. Use a glucose-plus-fructose gel (Maurten, SiS Beta Fuel, Precision) to lower the chance of GI upset. This is the session that fixes the 30km wall."}]}]}, {"n": 11, "dates": "7–13 Sep", "phase": "specific", "km": 51, "tag": "PEAK", "desc": "Peak week. The 30km long run with an 11km MP block. The session that breaks the 30km barrier.", "days": [{"d": "MON", "sessions": [{"t": "easy", "title": "Recovery Run · 6km", "sub": "6km · HR &lt;139 · very gentle", "id": "w11mon-easy", "steps": ["r:6km in the Recovery zone, heart rate under 139. Very gentle, just turning the legs over."], "note": "Recovery runs sit below the easy zone, in the COROS Recovery band (under 139). If that means walking the hills, walk them. The point is blood flow, not training load."}, {"t": "strength", "title": "Strength B · Upper", "sub": "after the easy run · spares the legs", "id": "w11mon-strB", "steps": ["e:Bench press or DB chest press · 3 × 8-10 · control the descent, full range, 1-2 reps in reserve.", "e:Chest-supported row · 3 × 10 · squeeze the shoulder blades at the top.", "e:Overhead press · 3 × 8 · brace the core, no big arch through the lower back.", "e:Lat pulldown or assisted pull-up · 3 × 8-10 · full range, controlled.", "e:Face pull · 3 × 15 · rear delts and posture, light and clean.", "e:Dead bug · 3 × 8 per side · anti-extension core, lower back stays flat."], "note": "Upper body sits the day after the long run on purpose: it builds robustness without fatiguing the running muscles. Reduce volume in deload, taper and race weeks (see Strength tab)."}]}, {"d": "TUE", "sessions": [{"t": "easy", "title": "Easy Run · 7km", "sub": "7km easy · HR 139-160 · conversational", "id": "w11tue-easy", "steps": ["r:7km easy. Keep heart rate in 139-160. This run is for aerobic volume, not pace.", "s:4 × strides after the run. ~20s smooth, fast-but-relaxed, full walk-back recovery. Neuromuscular, not a workout."], "note": "Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}, {"d": "WED", "sessions": [{"t": "strength", "title": "Strength A · Lower", "sub": "running strength and prehab", "id": "w11wed-strA", "steps": ["e:Goblet or back squat · 3 × 8 · controlled, knees track over the toes.", "e:Romanian deadlift · 3 × 8 · hinge at the hip, feel hamstrings and glutes.", "e:Bulgarian split squat · 3 × 10 per leg · single-leg control and balance.", "e:Single-leg calf raise · 3 × 12 per leg · slow lower, full range. Calf and Achilles robustness.", "e:Single-leg glute bridge · 3 × 12 per leg · full hip extension at the top.", "e:Side plank with top-leg lift · 3 × 30s per side · glute med and lateral core.", "e:Tibialis raise · 3 × 20 · lower-leg balance, lowers shin-splint risk."], "note": "Lower body sits mid-week, clear of the long run and with Thursday's rest before Friday's quality. The aim is durable, not sore. Reduce volume in deload, taper and race weeks."}]}, {"d": "THU", "sessions": []}, {"d": "FRI", "sessions": [{"t": "quality", "title": "Threshold · 4 × 1km", "sub": "8km total", "id": "w11fri-q", "steps": ["w:2km easy building to steady, then 4 strides to open the legs.", "s:4 × 1km at threshold, 5:32-5:36/km. 75s easy jog between reps. Heart rate settles around 174-178.", "c:2km easy. Let the heart rate come down."], "note": "Threshold is comfortably hard, not hard. In theory you could hold this pace for about an hour. If you cannot finish the final rep at pace, you opened too fast. Pace controls this session, not heart rate."}]}, {"d": "SAT", "sessions": []}, {"d": "SUN", "sessions": [{"t": "long", "title": "Long Run · 30km · 11km MP", "sub": "19km easy + 11km @ 6:05-6:10/km", "id": "w11sun-long", "steps": ["r:19km easy, heart rate capped at 160. Fuel from 20 minutes in.", "s:11km at marathon pace, 6:05-6:10/km, on tired legs. Pace controls now. Heart rate will rise into the 160s, that is correct."], "note": "Practise race fuelling on every long run from here: a gel at 20 minutes then one every 30 minutes, target 50-60g of carbs per hour. Use a glucose-plus-fructose gel (Maurten, SiS Beta Fuel, Precision) to lower the chance of GI upset. This is the session that fixes the 30km wall."}]}]}, {"n": 12, "dates": "14–20 Sep", "phase": "specific", "km": 36, "tag": "B-Race", "desc": "Half marathon dress rehearsal. Reduced volume, the race is the key session.", "days": [{"d": "MON", "sessions": [{"t": "easy", "title": "Recovery Run · 4km", "sub": "4km · HR &lt;139 · very gentle", "id": "w12mon-easy", "steps": ["r:4km in the Recovery zone, heart rate under 139. Very gentle, just turning the legs over."], "note": "Recovery runs sit below the easy zone, in the COROS Recovery band (under 139). If that means walking the hills, walk them. The point is blood flow, not training load."}, {"t": "strength", "title": "Strength B · Upper", "sub": "after the easy run · spares the legs", "id": "w12mon-strB", "steps": ["e:Bench press or DB chest press · 3 × 8-10 · control the descent, full range, 1-2 reps in reserve.", "e:Chest-supported row · 3 × 10 · squeeze the shoulder blades at the top.", "e:Overhead press · 3 × 8 · brace the core, no big arch through the lower back.", "e:Lat pulldown or assisted pull-up · 3 × 8-10 · full range, controlled.", "e:Face pull · 3 × 15 · rear delts and posture, light and clean.", "e:Dead bug · 3 × 8 per side · anti-extension core, lower back stays flat."], "note": "Upper body sits the day after the long run on purpose: it builds robustness without fatiguing the running muscles. Reduce volume in deload, taper and race weeks (see Strength tab)."}]}, {"d": "TUE", "sessions": [{"t": "easy", "title": "Easy Run · 6km", "sub": "6km easy · HR 139-160 · conversational", "id": "w12tue-easy", "steps": ["r:6km easy. Keep heart rate in 139-160. This run is for aerobic volume, not pace.", "s:4 × strides after the run. ~20s smooth, fast-but-relaxed, full walk-back recovery. Neuromuscular, not a workout."], "note": "Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}, {"d": "WED", "sessions": [{"t": "strength", "title": "Strength A · Lower", "sub": "running strength and prehab", "id": "w12wed-strA", "steps": ["e:Goblet or back squat · 3 × 8 · controlled, knees track over the toes.", "e:Romanian deadlift · 3 × 8 · hinge at the hip, feel hamstrings and glutes.", "e:Bulgarian split squat · 3 × 10 per leg · single-leg control and balance.", "e:Single-leg calf raise · 3 × 12 per leg · slow lower, full range. Calf and Achilles robustness.", "e:Single-leg glute bridge · 3 × 12 per leg · full hip extension at the top.", "e:Side plank with top-leg lift · 3 × 30s per side · glute med and lateral core.", "e:Tibialis raise · 3 × 20 · lower-leg balance, lowers shin-splint risk."], "note": "Lower body sits mid-week, clear of the long run and with Thursday's rest before Friday's quality. The aim is durable, not sore. Reduce volume in deload, taper and race weeks."}]}, {"d": "THU", "sessions": []}, {"d": "FRI", "sessions": [{"t": "quality", "title": "Primer · Easy + Strides", "sub": "4km total", "id": "w12fri-q", "steps": ["w:3km very easy.", "s:4 × 100m strides at smooth race-ish effort, full recovery. Just enough to feel sharp.", "c:1km easy."], "note": "Two days out from a race this opens the legs without adding fatigue. Stay relaxed."}]}, {"d": "SAT", "sessions": []}, {"d": "SUN", "sessions": [{"t": "race", "title": "Saucony Shoreditch Half · B-Race", "sub": "Sun 20 Sep · ~95% + full fuelling rehearsal", "id": "w12sun-race", "steps": ["w:1.5km easy plus a few strides.", "r:21.1km at about 95% effort. First 5km controlled, then settle into half-marathon rhythm and hold.", "n:This is the dress rehearsal. Run your exact race-morning routine, kit and the full gel protocol you will use at Abingdon. The result recalibrates your marathon target (see Decisions)."], "note": "The point of this race is as much the fuelling and pacing rehearsal as the time. Take a gel every 30 minutes from 20 minutes in. If your gut handles it here, it will handle it at Abingdon."}]}]}, {"n": 13, "dates": "21–27 Sep", "phase": "specific", "km": 46, "tag": "", "desc": "Final substantial long run, below peak. One more MP rehearsal, then taper.", "days": [{"d": "MON", "sessions": [{"t": "easy", "title": "Recovery Run · 5km", "sub": "5km · HR &lt;139 · very gentle", "id": "w13mon-easy", "steps": ["r:5km in the Recovery zone, heart rate under 139. Very gentle, just turning the legs over."], "note": "Recovery runs sit below the easy zone, in the COROS Recovery band (under 139). If that means walking the hills, walk them. The point is blood flow, not training load."}, {"t": "strength", "title": "Strength B · Upper", "sub": "after the easy run · spares the legs", "id": "w13mon-strB", "steps": ["e:Bench press or DB chest press · 3 × 8-10 · control the descent, full range, 1-2 reps in reserve.", "e:Chest-supported row · 3 × 10 · squeeze the shoulder blades at the top.", "e:Overhead press · 3 × 8 · brace the core, no big arch through the lower back.", "e:Lat pulldown or assisted pull-up · 3 × 8-10 · full range, controlled.", "e:Face pull · 3 × 15 · rear delts and posture, light and clean.", "e:Dead bug · 3 × 8 per side · anti-extension core, lower back stays flat."], "note": "Upper body sits the day after the long run on purpose: it builds robustness without fatiguing the running muscles. Reduce volume in deload, taper and race weeks (see Strength tab)."}]}, {"d": "TUE", "sessions": [{"t": "easy", "title": "Easy Run · 6km", "sub": "6km easy · HR 139-160 · conversational", "id": "w13tue-easy", "steps": ["r:6km easy. Keep heart rate in 139-160. This run is for aerobic volume, not pace.", "s:4 × strides after the run. ~20s smooth, fast-but-relaxed, full walk-back recovery. Neuromuscular, not a workout."], "note": "Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}, {"d": "WED", "sessions": [{"t": "strength", "title": "Strength A · Lower", "sub": "running strength and prehab", "id": "w13wed-strA", "steps": ["e:Goblet or back squat · 3 × 8 · controlled, knees track over the toes.", "e:Romanian deadlift · 3 × 8 · hinge at the hip, feel hamstrings and glutes.", "e:Bulgarian split squat · 3 × 10 per leg · single-leg control and balance.", "e:Single-leg calf raise · 3 × 12 per leg · slow lower, full range. Calf and Achilles robustness.", "e:Single-leg glute bridge · 3 × 12 per leg · full hip extension at the top.", "e:Side plank with top-leg lift · 3 × 30s per side · glute med and lateral core.", "e:Tibialis raise · 3 × 20 · lower-leg balance, lowers shin-splint risk."], "note": "Lower body sits mid-week, clear of the long run and with Thursday's rest before Friday's quality. The aim is durable, not sore. Reduce volume in deload, taper and race weeks."}]}, {"d": "THU", "sessions": []}, {"d": "FRI", "sessions": [{"t": "quality", "title": "Marathon Pace · 7km", "sub": "10km total", "id": "w13fri-q", "steps": ["w:2km easy to warm up.", "s:7km continuous at marathon pace, 6:05-6:10/km. This is your goal race rhythm. Lock it in and hold it steady.", "c:1km easy."], "note": "Marathon pace should feel almost too easy early. The skill is holding it honest when it stops feeling easy. Pace controls, not heart rate."}]}, {"d": "SAT", "sessions": []}, {"d": "SUN", "sessions": [{"t": "long", "title": "Long Run · 25km · 8km MP", "sub": "17km easy + 8km @ 6:05-6:10/km", "id": "w13sun-long", "steps": ["r:17km easy, heart rate capped at 160. Fuel from 20 minutes in.", "s:8km at marathon pace, 6:05-6:10/km, on tired legs. Pace controls now. Heart rate will rise into the 160s, that is correct."], "note": "Practise race fuelling on every long run from here: a gel at 20 minutes then one every 30 minutes, target 50-60g of carbs per hour. Use a glucose-plus-fructose gel (Maurten, SiS Beta Fuel, Precision) to lower the chance of GI upset. This is the session that fixes the 30km wall."}]}]}, {"n": 14, "dates": "28 Sep – 4 Oct", "phase": "taper", "km": 36, "tag": "", "desc": "Taper begins. Volume down, intensity stays. Sharpener at peak threshold pace.", "days": [{"d": "MON", "sessions": [{"t": "easy", "title": "Recovery Run · 4km", "sub": "4km · HR &lt;139 · very gentle", "id": "w14mon-easy", "steps": ["r:4km in the Recovery zone, heart rate under 139. Very gentle, just turning the legs over."], "note": "Recovery runs sit below the easy zone, in the COROS Recovery band (under 139). If that means walking the hills, walk them. The point is blood flow, not training load."}, {"t": "strength", "title": "Strength B · Upper", "sub": "after the easy run · spares the legs", "id": "w14mon-strB", "steps": ["e:Bench press or DB chest press · 3 × 8-10 · control the descent, full range, 1-2 reps in reserve.", "e:Chest-supported row · 3 × 10 · squeeze the shoulder blades at the top.", "e:Overhead press · 3 × 8 · brace the core, no big arch through the lower back.", "e:Lat pulldown or assisted pull-up · 3 × 8-10 · full range, controlled.", "e:Face pull · 3 × 15 · rear delts and posture, light and clean.", "e:Dead bug · 3 × 8 per side · anti-extension core, lower back stays flat."], "note": "Upper body sits the day after the long run on purpose: it builds robustness without fatiguing the running muscles. Reduce volume in deload, taper and race weeks (see Strength tab)."}]}, {"d": "TUE", "sessions": [{"t": "easy", "title": "Easy Run · 6km", "sub": "6km easy · HR 139-160 · conversational", "id": "w14tue-easy", "steps": ["r:6km easy. Keep heart rate in 139-160. This run is for aerobic volume, not pace.", "s:4 × strides after the run. ~20s smooth, fast-but-relaxed, full walk-back recovery. Neuromuscular, not a workout."], "note": "Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}, {"d": "WED", "sessions": [{"t": "strength", "title": "Strength A · Lower", "sub": "running strength and prehab", "id": "w14wed-strA", "steps": ["e:Goblet or back squat · 3 × 8 · controlled, knees track over the toes.", "e:Romanian deadlift · 3 × 8 · hinge at the hip, feel hamstrings and glutes.", "e:Bulgarian split squat · 3 × 10 per leg · single-leg control and balance.", "e:Single-leg calf raise · 3 × 12 per leg · slow lower, full range. Calf and Achilles robustness.", "e:Single-leg glute bridge · 3 × 12 per leg · full hip extension at the top.", "e:Side plank with top-leg lift · 3 × 30s per side · glute med and lateral core.", "e:Tibialis raise · 3 × 20 · lower-leg balance, lowers shin-splint risk."], "note": "Lower body sits mid-week, clear of the long run and with Thursday's rest before Friday's quality. The aim is durable, not sore. Reduce volume in deload, taper and race weeks."}]}, {"d": "THU", "sessions": []}, {"d": "FRI", "sessions": [{"t": "quality", "title": "Threshold · 3 × 1km", "sub": "7km total", "id": "w14fri-q", "steps": ["w:2km easy building to steady, then 4 strides to open the legs.", "s:3 × 1km at threshold, 5:30-5:34/km. 90s easy jog between reps. Heart rate settles around 174-178.", "c:2km easy. Let the heart rate come down."], "note": "Threshold is comfortably hard, not hard. In theory you could hold this pace for about an hour. If you cannot finish the final rep at pace, you opened too fast. Pace controls this session, not heart rate."}]}, {"d": "SAT", "sessions": []}, {"d": "SUN", "sessions": [{"t": "long", "title": "Long Run · 19km", "sub": "19km easy · HR 139-160, cap 160", "id": "w14sun-long", "steps": ["r:19km easy and even. Heart rate capped at 160. Some upward drift in the final 30-40 minutes is normal, do not fight it by slowing hard."], "note": "Last longer run. Easy and relaxed, light fuelling. Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}]}, {"n": 15, "dates": "5–11 Oct", "phase": "taper", "km": 29, "tag": "", "desc": "Deep taper. Legs feel fresh and slightly flat, that is the taper working, not fitness lost.", "days": [{"d": "MON", "sessions": [{"t": "easy", "title": "Recovery Run · 4km", "sub": "4km · HR &lt;139 · very gentle", "id": "w15mon-easy", "steps": ["r:4km in the Recovery zone, heart rate under 139. Very gentle, just turning the legs over."], "note": "Recovery runs sit below the easy zone, in the COROS Recovery band (under 139). If that means walking the hills, walk them. The point is blood flow, not training load."}, {"t": "strength", "title": "Strength B · Upper", "sub": "after the easy run · spares the legs", "id": "w15mon-strB", "steps": ["e:Bench press or DB chest press · 3 × 8-10 · control the descent, full range, 1-2 reps in reserve.", "e:Chest-supported row · 3 × 10 · squeeze the shoulder blades at the top.", "e:Overhead press · 3 × 8 · brace the core, no big arch through the lower back.", "e:Lat pulldown or assisted pull-up · 3 × 8-10 · full range, controlled.", "e:Face pull · 3 × 15 · rear delts and posture, light and clean.", "e:Dead bug · 3 × 8 per side · anti-extension core, lower back stays flat."], "note": "Upper body sits the day after the long run on purpose: it builds robustness without fatiguing the running muscles. Reduce volume in deload, taper and race weeks (see Strength tab)."}]}, {"d": "TUE", "sessions": [{"t": "easy", "title": "Easy Run · 5km", "sub": "5km easy · HR 139-160 · conversational", "id": "w15tue-easy", "steps": ["r:5km easy. Keep heart rate in 139-160. This run is for aerobic volume, not pace.", "s:4 × strides after the run. ~20s smooth, fast-but-relaxed, full walk-back recovery. Neuromuscular, not a workout."], "note": "Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}, {"d": "WED", "sessions": [{"t": "strength", "title": "Strength A · Lower", "sub": "running strength and prehab", "id": "w15wed-strA", "steps": ["e:Goblet or back squat · 3 × 8 · controlled, knees track over the toes.", "e:Romanian deadlift · 3 × 8 · hinge at the hip, feel hamstrings and glutes.", "e:Bulgarian split squat · 3 × 10 per leg · single-leg control and balance.", "e:Single-leg calf raise · 3 × 12 per leg · slow lower, full range. Calf and Achilles robustness.", "e:Single-leg glute bridge · 3 × 12 per leg · full hip extension at the top.", "e:Side plank with top-leg lift · 3 × 30s per side · glute med and lateral core.", "e:Tibialis raise · 3 × 20 · lower-leg balance, lowers shin-splint risk."], "note": "Lower body sits mid-week, clear of the long run and with Thursday's rest before Friday's quality. The aim is durable, not sore. Reduce volume in deload, taper and race weeks."}]}, {"d": "THU", "sessions": []}, {"d": "FRI", "sessions": [{"t": "quality", "title": "Marathon Pace · 3km", "sub": "6km total", "id": "w15fri-q", "steps": ["w:2km easy to warm up.", "s:3km continuous at marathon pace, 6:05-6:10/km. This is your goal race rhythm. Lock it in and hold it steady.", "c:1km easy."], "note": "Marathon pace should feel almost too easy early. The skill is holding it honest when it stops feeling easy. Pace controls, not heart rate."}]}, {"d": "SAT", "sessions": []}, {"d": "SUN", "sessions": [{"t": "long", "title": "Long Run · 14km", "sub": "14km easy · HR 139-160, cap 160", "id": "w15sun-long", "steps": ["r:14km easy and even. Heart rate capped at 160. Some upward drift in the final 30-40 minutes is normal, do not fight it by slowing hard."], "note": "Short, easy, with race rhythm in the legs. Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}]}, {"n": 16, "dates": "12–18 Oct", "phase": "race-wk", "km": 16, "tag": "Race Week", "desc": "Race week. Stay loose, sleep, carb load Thu and Fri. The work is done.", "days": [{"d": "MON", "sessions": [{"t": "easy", "title": "Recovery Run · 4km", "sub": "4km · HR &lt;139 · very gentle", "id": "w16mon-easy", "steps": ["r:4km in the Recovery zone, heart rate under 139. Very gentle, just turning the legs over."], "note": "Recovery runs sit below the easy zone, in the COROS Recovery band (under 139). If that means walking the hills, walk them. The point is blood flow, not training load."}]}, {"d": "TUE", "sessions": [{"t": "easy", "title": "Easy Run · 5km", "sub": "5km easy · HR 139-160 · conversational", "id": "w16tue-easy", "steps": ["r:5km easy. Keep heart rate in 139-160. This run is for aerobic volume, not pace.", "s:4 × strides after the run. ~20s smooth, fast-but-relaxed, full walk-back recovery. Neuromuscular, not a workout."], "note": "Easy is a state, not a pace. If your heart rate sits in 139-160, you are running it correctly whatever the watch says. On a warm or tired day easy is slower. That is fine."}]}, {"d": "WED", "sessions": [{"t": "strength", "title": "No gym · race week", "sub": "rest the legs", "id": "w16wed-note", "steps": ["n:No strength this week. Keep the legs fresh. A gentle walk and light mobility only."], "note": "Everything now is about arriving rested. Resist the urge to do more."}]}, {"d": "THU", "sessions": []}, {"d": "FRI", "sessions": [{"t": "easy", "title": "Easy Run · 4km", "sub": "4km easy · HR 139-160 · conversational", "id": "w16fri-easy", "steps": ["r:4km easy. Keep heart rate in 139-160. This run is for aerobic volume, not pace.", "s:4 × strides after the run. ~20s smooth, fast-but-relaxed, full walk-back recovery. Neuromuscular, not a workout."], "note": "Shakeout. 4km very easy with 4 short strides. Sharp, not tired."}]}, {"d": "SAT", "sessions": [{"t": "easy", "title": "Recovery Run · 3km", "sub": "3km · HR &lt;139 · very gentle", "id": "w16sat-easy", "steps": ["r:3km in the Recovery zone, heart rate under 139. Very gentle, just turning the legs over."], "note": "Optional 3km shakeout jog, or rest. Whichever leaves you feeling fresher for tomorrow."}]}, {"d": "SUN", "sessions": [{"t": "race", "title": "Abingdon Marathon", "sub": "Sun 18 Oct · 42.2km · race day", "id": "w16sun-race", "steps": ["n:Three-phase plan. Phase 1 (0-5km): 6:18-6:22/km, let it feel too easy. Phase 2 (5-30km): 6:08-6:10/km, settle the rhythm. Phase 3 (30km onward): hold, or push only if genuinely strong.", "n:Gels from 20 minutes, then one every 30 minutes. Do not wait until you feel low. The half split will read around 2:10-2:12. That is correct for a patient 4:20. Do not chase it back."], "note": "Full morning protocol, pacing table and gel schedule are in the Race Day tab. Trust the plan you rehearsed."}]}]}];
+
+// ══════════════════════════════════════════════════
+// DO NOT CHANGE anything below this line
+// ══════════════════════════════════════════════════
+const TYPE_META={easy:{label:'Easy Run',dotColor:'var(--easy-col)',badgeColor:'rgba(88,166,255,0.15)',badgeText:'#58a6ff'},quality:{label:'Quality',dotColor:'var(--quality-col)',badgeColor:'rgba(240,136,62,0.18)',badgeText:'#f0883e'},long:{label:'Long Run',dotColor:'var(--longrun-col)',badgeColor:'rgba(139,92,246,0.15)',badgeText:'#8b5cf6'},strength:{label:'Strength',dotColor:'var(--strength-col)',badgeColor:'rgba(63,185,80,0.15)',badgeText:'#3fb950'},rest:{label:'Rest',dotColor:'var(--dim)',badgeColor:'rgba(125,133,144,0.12)',badgeText:'#7d8590'},race:{label:'Race',dotColor:'var(--race-col)',badgeColor:'rgba(248,81,73,0.18)',badgeText:'#f85149'}};
+const STEP_KIND={w:{label:'Warm-up',barClass:'w'},s:{label:'Set',barClass:'s'},c:{label:'Cool-down',barClass:'c'},r:{label:'Run',barClass:'r'},e:{label:'',barClass:'e'},n:{label:'Note',barClass:'n'}};
+let planState={};
+PLAN_DATA.forEach((wk,i)=>{const wid='wk'+(i+1);planState[wid]={};wk.days.forEach(d=>{planState[wid][d.d]=d.sessions.map(s=>s.id);});});
+let completionState={};
+function markDirty(){const b=document.getElementById('saveBarEl');if(b)b.classList.remove('hidden');}
+const SESSION_MAP={};
+PLAN_DATA.forEach(wk=>wk.days.forEach(d=>d.sessions.forEach(s=>{SESSION_MAP[s.id]=s;})));
+let CUSTOM_SESSIONS={},SESSION_OVERRIDES={};
+
+function navigateToWeek(idx){
+  const wk=PLAN_DATA[idx];if(!wk)return;
+  let cp='base';
+  if(wk.phase.includes('threshold'))cp='threshold-ph';
+  else if(wk.phase==='specific')cp='specific';
+  else if(wk.phase==='taper'||wk.phase==='race-wk')cp='taper';
+  if(!document.getElementById('panel-plan').classList.contains('active'))switchTab('plan',document.querySelector('.tab-btn'));
+  const chip=document.querySelector(`.phase-chip.${cp}`);
+  if(chip){document.querySelectorAll('.phase-chip').forEach(c=>c.classList.remove('active'));chip.classList.add('active');renderPlanForPhase(cp);}
+  const wid='wk'+(idx+1);
+  setTimeout(()=>{const card=document.querySelector(`.week-card[data-week="${wid}"]`);if(card){const body=card.querySelector('.week-body');if(body)body.style.display='block';card.classList.add('open');card.scrollIntoView({behavior:'smooth',block:'start'});}},60);
+}
+
+// ← ATHLETE DATA: VOL_DATA and maxKm
+const VOL_DATA=[{"km": 21, "phase": "base"}, {"km": 24, "phase": "base"}, {"km": 31, "phase": "base"}, {"km": 23, "phase": "deload-base"}, {"km": 35, "phase": "base"}, {"km": 26, "phase": "threshold-ph"}, {"km": 40, "phase": "threshold-ph"}, {"km": 44, "phase": "threshold-ph"}, {"km": 32, "phase": "deload-threshold"}, {"km": 45, "phase": "specific"}, {"km": 51, "phase": "specific"}, {"km": 36, "phase": "specific"}, {"km": 46, "phase": "specific"}, {"km": 36, "phase": "taper"}, {"km": 29, "phase": "taper"}, {"km": 16, "phase": "race-wk"}];
+const maxKm=51;/* ← ATHLETE DATA: peak week km */
+const PHASE_RGB={'base':'63,185,80','deload-base':'63,185,80','threshold-ph':'240,136,62','deload-threshold':'240,136,62','specific':'227,179,65','taper':'188,140,255','race-wk':'248,81,73'};
+const chart=document.getElementById('volChart');
+VOL_DATA.forEach((w,i)=>{
+  const h=Math.max(6,(w.km/maxKm)*100),isD=w.phase.includes('deload'),rgb=PHASE_RGB[w.phase]||'139,148,158';
+  const wrap=document.createElement('div');wrap.className='vol-bar-wrap';wrap.title=`Week ${i+1} · ${w.km}km`;wrap.onclick=()=>navigateToWeek(i);
+  const bar=document.createElement('div');bar.className='vol-bar';bar.style.height=h+'%';bar.style.background=`rgba(${rgb},${isD?0.55:1})`;
+  const lbl=document.createElement('span');lbl.className='vol-wk-label';
+  if(i===0)lbl.textContent='Wk 1';if(i===VOL_DATA.length-1)lbl.textContent='Wk '+VOL_DATA.length;
+  wrap.appendChild(bar);wrap.appendChild(lbl);chart.appendChild(wrap);
+});
+
+function renderOneCard(sid,wid,day,idx){
+  const s=SESSION_MAP[sid];if(!s)return'';
+  const comp=completionState[sid]||null,cc=comp==='done'?' is-done':comp==='skipped'?' is-skipped':'',bc=comp?' '+comp:'',bt=comp==='done'?'✓':comp==='skipped'?'✕':'';
+  const B={easy:'E',quality:'Q',long:'LR',strength:'ST',rest:'·',race:'!'};
+  return `<div class="session-card type-${s.t}${cc}" data-session-id="${sid}" data-week="${wid}" data-day="${day}" data-idx="${idx}" onclick="openSheet('${sid}')" draggable="true"><div class="sc-badge">${B[s.t]||s.t.substring(0,2).toUpperCase()}</div><div class="sc-info"><div class="sc-title">${s.title}${sid.startsWith('custom-')?'<span class=\"ea-ntag\">New</span>':SESSION_OVERRIDES[sid]?'<span class=\"ea-etag\">Edited</span>':''}</div>${s.sub?`<div class="sc-sub">${s.sub}</div>`:''}</div>${s.t!=='rest'?`<button class=\"session-edit-btn\" onclick=\"eaOpenEdit('${sid}',event)\" aria-label=\"Edit session\">✎</button>`:''}<button class="completion-btn${bc}" data-sid="${sid}" onclick="toggleCompletion('${sid}',event)">${bt}</button></div>`;
+}
+function renderDayRow(day,wid,sids){
+  const real=sids.filter(s=>{const x=SESSION_MAP[s];return x&&x.t!=='rest';});
+  if(!real.length)return`<div class="day-row"><div class="day-label">${day}</div><div class="session-slot rest-slot" data-week="${wid}" data-day="${day}" data-rest="true"><div class="rest-indicator"><div class="rest-dot"></div><span class="rest-label">Rest · Full recovery</span></div></div></div>`;
+  return`<div class="day-row"><div class="day-label">${day}</div><div class="session-slot" data-week="${wid}" data-day="${day}"><span class="drop-hint swap">↔ Swap</span><span class="drop-hint stack">+ Stack</span>${real.map((s,i)=>renderOneCard(s,wid,day,i)).join('')}</div></div>`;
+}
+function getWeekTag(wk){if(!wk.tag)return'';const m={'Deload':'<span class="wtag wtag-deload">Deload</span>','PEAK':'<span class="wtag wtag-peak">Peak</span>','B-Race':'<span class="wtag wtag-brace">B-Race</span>','Race Week':'<span class="wtag wtag-race">Race Week</span>','VO2 Bridge':'<span class="wtag wtag-bridge">VO2 Bridge</span>'};return m[wk.tag]||`<span class="wtag">${wk.tag}</span>`;}
+function renderWeek(wk,i){
+  const wid='wk'+(i+1);
+  const dh=wk.days.map(d=>renderDayRow(d.d,wid,(planState[wid]&&planState[wid][d.d])||d.sessions.map(s=>s.id))).join('');
+  return`<div class="week-card phase-${wk.phase}" data-week="${wid}" data-phase="${wk.phase}"><div class="week-bg-num">W${String(wk.n).padStart(2,'0')}</div><div class="week-header" onclick="toggleWeek(this)"><div class="week-h-left"><div class="week-num-row">Week ${wk.n} ${getWeekTag(wk)} <span class="week-dates">${wk.dates}</span></div><div class="week-desc">${wk.desc}</div></div><div class="week-h-right"><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><div id="compl-${wid}" class="week-compl"></div><div style="display:flex;align-items:baseline;gap:3px"><div class="week-km-big">${wk.km}</div><div class="week-km-lbl">km</div></div></div><button class="ea-add-btn" onclick="eaOpenAdd('${wid}',event)" aria-label="Add session to week">+</button><div class="week-chevron">▾</div></div><div class="wk-prog-wrap"><div class="wk-prog-labels"><span class="wk-prog-done" id="wkprog-done-${wid}">0km done</span><span class="wk-prog-total" id="wkprog-total-${wid}">– km running</span></div><div class="wk-prog-track"><div class="wk-prog-fill" id="wkprog-${wid}"></div></div></div></div><div class="week-body" style="display:none" data-week="${wid}">${dh}</div></div>`;
+}
+const PHASE_MAP={'base':['base','deload-base'],'threshold-ph':['threshold-ph','deload-threshold'],'specific':['specific'],'taper':['taper','race-wk']};
+let currentPhase='base';
+function renderPlanForPhase(ph){
+  currentPhase=ph;const wl=document.getElementById('week-list');const phases=PHASE_MAP[ph]||[ph];
+  wl.innerHTML=PLAN_DATA.map((wk,i)=>phases.includes(wk.phase)?renderWeek(wk,i):'').join('');
+  initDragDrop();markCurrentWeek();PLAN_DATA.forEach((wk,i)=>{if(phases.includes(wk.phase))updateWeekCompletion('wk'+(i+1));});
+}
+window.filterPhase=function(ph,btn){document.querySelectorAll('.phase-chip').forEach(c=>c.classList.remove('active'));btn.classList.add('active');renderPlanForPhase(ph);};
+window.toggleWeek=function(hdr){const card=hdr.parentElement,body=card.querySelector('.week-body'),open=body.style.display==='block';body.style.display=open?'none':'block';card.classList.toggle('open',!open);};
+
+// ← ATHLETE DATA: DATES array – one ['YYYY-MM-DD','YYYY-MM-DD'] per week
+const DATES=[["2026-06-29", "2026-07-05"], ["2026-07-06", "2026-07-12"], ["2026-07-13", "2026-07-19"], ["2026-07-20", "2026-07-26"], ["2026-07-27", "2026-08-02"], ["2026-08-03", "2026-08-09"], ["2026-08-10", "2026-08-16"], ["2026-08-17", "2026-08-23"], ["2026-08-24", "2026-08-30"], ["2026-08-31", "2026-09-06"], ["2026-09-07", "2026-09-13"], ["2026-09-14", "2026-09-20"], ["2026-09-21", "2026-09-27"], ["2026-09-28", "2026-10-04"], ["2026-10-05", "2026-10-11"], ["2026-10-12", "2026-10-18"]];
+function markCurrentWeek(){
+  const today=new Date();today.setHours(0,0,0,0);
+  DATES.forEach(([s,e],i)=>{const start=new Date(s),end=new Date(e);end.setHours(23,59,59,999);if(today>=start&&today<=end){const card=document.querySelector(`.week-card[data-week="wk${i+1}"]`);if(card){card.classList.add('current-week');const body=card.querySelector('.week-body');if(body)body.style.display='block';card.classList.add('open');setTimeout(()=>card.scrollIntoView({behavior:'smooth',block:'start'}),400);}}});
+}
+function buildDateSessionMap(){const map={},dayNames=['MON','TUE','WED','THU','FRI','SAT','SUN'];PLAN_DATA.forEach((wk,i)=>{if(!DATES[i])return;const weekStart=new Date(DATES[i][0]+'T12:00:00');wk.days.forEach(day=>{const offset=dayNames.indexOf(day.d);if(offset<0)return;const d=new Date(weekStart);d.setDate(d.getDate()+offset);const dateStr=d.toISOString().split('T')[0];const ids=day.sessions.filter(s=>['easy','quality','long','race'].includes(s.t)).map(s=>s.id);if(ids.length)map[dateStr]=ids;});});return map;}
+
+function realIds(a){return (a||[]).filter(function(id){var x=SESSION_MAP[id];return x&&x.t!=='rest';});}
+let dragCard=null,dragWeek=null,dragDay=null,dragIdx=null;
+function initDragDrop(){
+  document.querySelectorAll('.session-card').forEach(c=>{c.addEventListener('dragstart',onDragStart);c.addEventListener('dragend',onDragEnd);c.addEventListener('touchstart',onTouchStart,{passive:true});});
+  document.querySelectorAll('.session-slot,.rest-slot').forEach(s=>{s.addEventListener('dragover',onDragOver);s.addEventListener('dragleave',onDragLeave);s.addEventListener('drop',onDrop);});
+}
+function onDragStart(e){dragCard=e.currentTarget;dragWeek=dragCard.dataset.week;dragDay=dragCard.dataset.day;dragIdx=parseInt(dragCard.dataset.idx);setTimeout(()=>dragCard.classList.add('dragging'),0);e.dataTransfer.effectAllowed='move';}
+function onDragEnd(){dragCard&&dragCard.classList.remove('dragging');document.querySelectorAll('.session-slot').forEach(s=>s.classList.remove('drag-over-swap','drag-over-stack'));dragCard=null;}
+function onDragOver(e){e.preventDefault();if(!dragCard)return;const slot=e.currentTarget;if(slot.dataset.week!==dragWeek)return;slot.classList.remove('drag-over-swap','drag-over-stack');if(slot.dataset.rest==='true'||slot.classList.contains('empty')){slot.classList.add('drag-over-stack');}else{const r=slot.getBoundingClientRect();slot.classList.add(e.clientX<r.left+r.width/2?'drag-over-swap':'drag-over-stack');}}
+function onDragLeave(e){e.currentTarget.classList.remove('drag-over-swap','drag-over-stack');}
+function onDrop(e){
+  e.preventDefault();if(!dragCard)return;
+  const ts=e.currentTarget;ts.classList.remove('drag-over-swap','drag-over-stack');
+  if(ts.dataset.week!==dragWeek||ts.dataset.day===dragDay)return;
+  const wk=dragWeek,src=realIds(planState[wk][dragDay]),tgt=realIds(planState[wk][ts.dataset.day]);
+  const[moved]=src.splice(dragIdx,1);
+  const isEmpty=tgt.length===0||ts.dataset.rest==='true';
+  let doSwap=false;if(!isEmpty&&tgt.length>0){const r=ts.getBoundingClientRect();doSwap=e.clientX<r.left+r.width/2;}
+  if(doSwap&&tgt.length===1){const[sw]=tgt.splice(0,1);src.splice(dragIdx,0,sw);}
+  tgt.push(moved);planState[wk][dragDay]=src;planState[wk][ts.dataset.day]=tgt;
+  reRenderWeekBody(wk);markDirty();
+}
+function reRenderWeekBody(wid){
+  const body=document.querySelector(`.week-body[data-week="${wid}"]`);if(!body)return;
+  const wk=PLAN_DATA[parseInt(wid.replace('wk',''))-1];
+  body.innerHTML=wk.days.map(d=>renderDayRow(d.d,wid,(planState[wid]&&planState[wid][d.d])||d.sessions.map(s=>s.id))).join('');
+  body.querySelectorAll('.session-card').forEach(c=>{c.addEventListener('dragstart',onDragStart);c.addEventListener('dragend',onDragEnd);c.addEventListener('touchstart',onTouchStart,{passive:true});});
+  body.querySelectorAll('.session-slot').forEach(s=>{s.addEventListener('dragover',onDragOver);s.addEventListener('dragleave',onDragLeave);s.addEventListener('drop',onDrop);});
+  updateWeekCompletion(wid);
+}
+let touchGhost=null,touchSrcCard=null,touchSrcWeek=null,touchSrcDay=null,touchSrcIdx=null;
+function onTouchStart(e){touchSrcCard=e.currentTarget;touchSrcWeek=touchSrcCard.dataset.week;touchSrcDay=touchSrcCard.dataset.day;touchSrcIdx=parseInt(touchSrcCard.dataset.idx);}
+function onTouchMove(e){
+  if(!touchSrcCard)return;e.preventDefault();
+  if(!touchGhost){touchGhost=touchSrcCard.cloneNode(true);touchGhost.style.cssText=`position:fixed;opacity:0.75;pointer-events:none;z-index:999;width:${touchSrcCard.offsetWidth}px;transition:none;border-radius:8px`;document.body.appendChild(touchGhost);touchSrcCard.classList.add('dragging');}
+  const t=e.touches[0];touchGhost.style.left=(t.clientX-touchSrcCard.offsetWidth/2)+'px';touchGhost.style.top=(t.clientY-24)+'px';
+}
+function onTouchEnd(e){
+  if(!touchSrcCard)return;
+  if(touchGhost){
+    const t=e.changedTouches[0];touchGhost.style.display='none';const el=document.elementFromPoint(t.clientX,t.clientY);touchGhost.style.display='';
+    if(el){const ts=el.closest('.session-slot');if(ts&&ts.dataset.week===touchSrcWeek&&ts.dataset.day!==touchSrcDay){const wk=touchSrcWeek,src=realIds(planState[wk][touchSrcDay]),tgt=realIds(planState[wk][ts.dataset.day]);const[moved]=src.splice(touchSrcIdx,1);const isEmpty=tgt.length===0||ts.dataset.rest==='true';let doSwap=false;if(!isEmpty&&tgt.length>0){const r=ts.getBoundingClientRect();doSwap=t.clientX<(r.left+r.width/2);}if(doSwap&&tgt.length===1){const[sw]=tgt.splice(0,1);src.splice(touchSrcIdx,0,sw);}tgt.push(moved);planState[wk][touchSrcDay]=src;planState[wk][ts.dataset.day]=tgt;reRenderWeekBody(wk);markDirty();}}
+    document.body.removeChild(touchGhost);touchGhost=null;
+  }
+  touchSrcCard&&touchSrcCard.classList.remove('dragging');touchSrcCard=touchSrcWeek=touchSrcDay=touchSrcIdx=null;
+}
+document.addEventListener('touchmove',onTouchMove,{passive:false});
+document.addEventListener('touchend',onTouchEnd);
+
+window.toggleCompletion=function(sid,e){
+  e.stopPropagation();const cur=completionState[sid]||null,next=cur===null?'done':cur==='done'?'skipped':null;
+  completionState[sid]=next;
+  const card=document.querySelector(`.session-card[data-session-id="${sid}"]`),wid=card?card.dataset.week:null;
+  const btn=document.querySelector(`.completion-btn[data-sid="${sid}"]`);
+  if(btn){btn.className='completion-btn'+(next?' '+next:'');btn.textContent=next==='done'?'✓':next==='skipped'?'✕':'';}
+  if(card){card.classList.remove('is-done','is-skipped');if(next==='done')card.classList.add('is-done');if(next==='skipped')card.classList.add('is-skipped');}
+  if(wid)updateWeekCompletion(wid);markDirty();
+};
+function getSessionKm(s){if(!s||s.t==='rest'||s.t==='strength')return 0;const td=s.title.match(/·\s*(\d+(?:\.\d+)?)\s*km\b/i);if(td&&parseFloat(td[1])>=5)return parseFloat(td[1]);const ss=s.sub.match(/^(\d+(?:\.\d+)?)\s*km/i);if(ss)return parseFloat(ss[1]);const sa=s.sub.match(/(\d+(?:\.\d+)?)\s*km/i);if(sa)return parseFloat(sa[1]);return 0;}
+function getWeekRunProgress(wid){const wk=PLAN_DATA[parseInt(wid.replace('wk',''))-1];if(!wk)return{doneKm:0,totalKm:0,pct:0};let t=0,d=0;wk.days.forEach(dy=>{const ids=planState[wid]?(planState[wid][dy.d]||dy.sessions.map(s=>s.id)):dy.sessions.map(s=>s.id);ids.forEach(sid=>{const s=SESSION_MAP[sid];if(!s||s.t==='rest'||s.t==='strength')return;const km=getSessionKm(s);t+=km;if(completionState[sid]==='done')d+=km;});});const pct=t>0?Math.round((d/t)*100):0;return{doneKm:Math.round(d*10)/10,totalKm:Math.round(t*10)/10,pct};}
+function updateWeekProgress(wid){const fill=document.getElementById('wkprog-'+wid),de=document.getElementById('wkprog-done-'+wid),te=document.getElementById('wkprog-total-'+wid);if(!fill)return;const{doneKm,totalKm,pct}=getWeekRunProgress(wid);fill.style.width=pct+'%';fill.className='wk-prog-fill'+(pct===100?' pr-green':pct>=50?' pr-amber':pct>0?' pr-red':'');de.textContent=doneKm+'km done';de.style.color=pct===100?'var(--base)':pct>=50?'var(--specific)':pct>0?'var(--race-col)':'var(--dim)';te.textContent=totalKm+'km running';}
+function updateWeekCompletion(wid){if(!wid)return;const wk=PLAN_DATA[parseInt(wid.replace('wk',''))-1];if(!wk)return;const all=[];wk.days.forEach(d=>{((planState[wid]&&planState[wid][d.d])||d.sessions.map(s=>s.id)).forEach(sid=>{const s=SESSION_MAP[sid];if(s&&s.t!=='rest')all.push(sid);});});const total=all.length,done=all.filter(s=>completionState[s]==='done').length;const el=document.getElementById('compl-'+wid);if(!el)return;el.textContent=done>0?`${done}/${total}`:'';el.className='week-compl'+(done===total&&total>0?' all-done':'');updateWeekProgress(wid);}
+
+let _sheetSid='';
+window.openSheet=function(sid){
+  _sheetSid=sid;const s=SESSION_MAP[sid];if(!s)return;const meta=TYPE_META[s.t]||TYPE_META.easy;
+  const badge=document.getElementById('sheetBadge');
+  badge.innerHTML=`<div class="sheet-dot" style="background:${meta.dotColor}"></div><span style="color:${meta.badgeText}">${meta.label}</span>`;
+  badge.style.cssText=`background:${meta.badgeColor};padding:3px 10px;border-radius:12px;display:inline-flex;align-items:center;gap:6px;font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em`;
+  document.getElementById('sheetTitle').textContent=s.title;document.getElementById('sheetMeta').textContent=s.sub||'';
+  let html='';(s.steps||[]).forEach(step=>{const ci=step.indexOf(':'),k=step.substring(0,ci),txt=step.substring(ci+1),km=STEP_KIND[k]||STEP_KIND.n;html+=`<div class="step-item"><div class="step-bar ${km.barClass}"></div><div class="sc-info">${km.label?`<div class="step-kind ${km.barClass}">${km.label}</div>`:''}<div class="step-text">${txt}</div></div></div>`;});
+  if(s.note)html+=`<div class="sheet-note">${s.note}</div>`;
+  document.getElementById('sheetBody').innerHTML=html;
+  const delBtn=document.getElementById('sheetDelete');if(delBtn)delBtn.style.display=sid.startsWith('custom-')?'block':'none';
+  document.getElementById('sheetOverlay').classList.add('visible');document.getElementById('bottomSheet').classList.add('visible');
+};
+window.closeSheet=function(){document.getElementById('sheetOverlay').classList.remove('visible');document.getElementById('bottomSheet').classList.remove('visible');};
+window.eaDeleteSession=function(){var sid=_sheetSid;closeSheet();if(!sid||!sid.startsWith('custom-'))return;var card=document.querySelector('.session-card[data-session-id="'+sid+'"]');var wid=card?card.dataset.week:null;Object.keys(planState).forEach(function(w){Object.keys(planState[w]).forEach(function(d){planState[w][d]=planState[w][d].filter(function(x){return x!==sid;});});});delete SESSION_MAP[sid];delete CUSTOM_SESSIONS[sid];delete completionState[sid];if(wid)reRenderWeekBody(wid);markDirty();};
+window.switchTab=function(name,btn){document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));document.getElementById('panel-'+name).classList.add('active');btn.classList.add('active');};
+window.switchStrength=function(tab,btn){document.querySelectorAll('.str-panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.str-tab').forEach(b=>{b.classList.remove('active-a');b.classList.remove('active-b');});document.getElementById('str-'+tab).classList.add('active');btn.classList.add('active-'+tab);};
+window.switchNotes=function(sec,btn){document.querySelectorAll('.notes-section').forEach(s=>s.classList.remove('active'));document.querySelectorAll('.notes-sub-btn').forEach(b=>b.classList.remove('active'));document.getElementById('notes-'+sec).classList.add('active');btn.classList.add('active');};
+window.saveState=async function(){const btn=document.getElementById('saveBtn');btn.textContent='Saving...';btn.disabled=true;try{if(window.fbSave)await window.fbSave({planState,completionState,customSessions:CUSTOM_SESSIONS,sessionOverrides:SESSION_OVERRIDES,ts:Date.now()});btn.textContent='Saved ✓';btn.style.borderColor='var(--base)';btn.style.color='var(--base)';setTimeout(()=>{btn.textContent='Save changes';btn.style.borderColor='';btn.style.color='';btn.disabled=false;document.getElementById('saveBarEl').classList.add('hidden');},1800);}catch(e){btn.textContent='Error – try again';btn.disabled=false;console.error(e);}};
+function boot(){renderPlanForPhase('base');let fbApplied=false;async function applyFB(){if(fbApplied)return;fbApplied=true;try{if(!window.fbLoad)return;const data=await window.fbLoad();if(data){if(data.planState){Object.keys(data.planState).forEach(function(k){planState[k]=data.planState[k];});}if(data.completionState)completionState=data.completionState;if(data.customSessions){Object.keys(data.customSessions).forEach(function(k){CUSTOM_SESSIONS[k]=data.customSessions[k];SESSION_MAP[k]=data.customSessions[k];});}if(data.sessionOverrides){Object.keys(data.sessionOverrides).forEach(function(k){SESSION_OVERRIDES[k]=data.sessionOverrides[k];var sv=SESSION_MAP[k];if(sv){sv.title=data.sessionOverrides[k].title;if(data.sessionOverrides[k].sub!==undefined)sv.sub=data.sessionOverrides[k].sub;}});}if(data.strava_completed_dates&&Array.isArray(data.strava_completed_dates)){const dateMap=buildDateSessionMap();data.strava_completed_dates.forEach(function(date){(dateMap[date]||[]).forEach(function(sid){if(!completionState[sid])completionState[sid]='done';});});}renderPlanForPhase(currentPhase);}}catch(e){console.log('Firebase load skipped:',e);}}window.addEventListener('firebaseReady',applyFB);if(window.fbLoad)applyFB();}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
+
+// ← ATHLETE DATA: replace race datetime
+(function(){function tick(){var race=new Date("2026-10-18T09:00:00");/* ← ATHLETE DATA */var now=new Date(),diff=Math.max(0,race-now),days=Math.floor(diff/86400000),g=function(id){return document.getElementById(id);};if(g('cdDays'))g('cdDays').textContent=days;if(g('cdWeeks'))g('cdWeeks').textContent=Math.floor(days/7);if(g('cdMonths'))g('cdMonths').textContent=Math.floor(days/30.44);}tick();setInterval(tick,60000);})();
+
+// ── EDIT / ADD SESSION FEATURE ─────────────────────────────────────────────
+window.EA_PACES={T1:'5:44/km',T2:'5:38/km',T3:'5:34/km',T4:'5:32/km',MP:'6:08/km'}/* ← ATHLETE DATA: threshold tier paces + marathon pace, e.g. {T1:'4:44/km',...,MP:'5:10/km'} */
+(function(){
+var eaMode='',eaStep=1,eaWid='',eaDay='',eaType='',eaTier='T3',eaMpOn=true,eaSid='';
+function getEaPaces(){return window.EA_PACES||{T1:'4:18/km',T2:'4:13/km',T3:'4:10/km',T4:'4:05/km',MP:'4:30/km'};}
+function eaShow(){document.getElementById('ea-ov').classList.add('on');requestAnimationFrame(function(){document.getElementById('ea-sh').classList.add('open');});}
+function eaClose(){document.getElementById('ea-sh').classList.remove('open');document.getElementById('ea-ov').classList.remove('on');}
+window.eaClose=eaClose;
+function eaRender(){
+  var el=document.getElementById('ea-sc');if(!el)return;
+  if(eaMode==='add'&&eaStep===1)el.innerHTML=eaS1();
+  else if(eaMode==='add'&&eaStep===2)el.innerHTML=eaS2();
+  else if(eaMode==='add'&&eaStep===3)el.innerHTML=eaS3();
+  else if(eaMode==='edit-easy')el.innerHTML=eaFmEasy(false);
+  else if(eaMode==='edit-quality')el.innerHTML=eaFmThresh(false);
+  else if(eaMode==='edit-long')el.innerHTML=eaFmLong(false);
+  else if(eaMode==='edit-strength'||eaMode==='edit-rest')el.innerHTML=eaFmReadonly();
+}
+window.eaOpenAdd=function(wid,evt){if(evt)evt.stopPropagation();eaMode='add';eaStep=1;eaWid=wid;eaDay='';eaType='';eaRender();eaShow();};
+window.eaOpenEdit=function(sid,evt){if(evt)evt.stopPropagation();eaSid=sid;var s=SESSION_MAP[sid];if(!s)return;var m={easy:'edit-easy',quality:'edit-quality',long:'edit-long',strength:'edit-strength',race:'edit-strength',rest:'edit-rest'};eaMode=m[s.t]||'edit-easy';eaRender();eaShow();};
+function eaDots(n){return[1,2,3].map(function(i){return'<div class="ea-dot'+(i<n?' on':i===n?' cur':'')+'"></div>';}).join('');}
+function eaHead(n,t,s){return'<div class="ea-head"><div class="ea-steps">'+eaDots(n)+'<span class="ea-slbl">Step '+n+' of 3</span></div><div class="ea-title">'+t+'</div><div class="ea-sub">'+s+'</div></div>';}
+function eaEHead(col,lbl,t,s){return'<div class="ea-head"><div class="ea-steps"><div class="ea-dot on" style="background:'+col+'"></div><span class="ea-slbl" style="color:'+col+'">'+lbl+'</span></div><div class="ea-title">'+t+'</div><div class="ea-sub">'+s+'</div></div>';}
+function eaFoot(lbl,ra,dis){return'<div class="ea-foot"><button class="ea-bs" onclick="eaClose()">Cancel</button><button class="ea-bp" onclick="'+ra+'"'+(dis?' disabled':'')+'>'+lbl+'</button></div>';}
+function eaS1(){
+  var wk=PLAN_DATA[parseInt(eaWid.replace('wk',''))-1];
+  var days=wk?wk.days.map(function(d){return d.d;}):[['Mon','Tue','Wed','Thu','Fri','Sat']];
+  var pills=days.map(function(d){return'<button class="ea-dp'+(eaDay===d?' sel':'')+'" onclick="eaPickDay(\''+d+'\')">'+d+'</button>';}).join('');
+  return eaHead(1,'Which day?','Choose the day to add to')+'<div class="ea-body"><div class="ea-fl">Days in this week</div><div class="ea-dg">'+pills+'</div></div>'+eaFoot('Next','eaGoStep(2)',!eaDay);
+}
+window.eaPickDay=function(d){eaDay=d;eaRender();};
+function eaS2(){
+  var tcs=[{id:'easy',c:'var(--easy-col)',n:'Easy run',d:'Zone 2 · distance-based'},{id:'quality',c:'var(--quality-col)',n:'Quality session',d:'Threshold · reps + pace'},{id:'long',c:'var(--longrun-col)',n:'Long run',d:'Easy or with MP block'}];
+  var sm={easy:'sel-e',quality:'sel-q',long:'sel-l'};var cm={easy:'ea-tc-e',quality:'ea-tc-q',long:'ea-tc-l'};
+  var cards=tcs.map(function(t){var sel=eaType===t.id?(sm[t.id]||''):'';return'<div class="ea-tc '+cm[t.id]+' '+sel+'" onclick="eaPickType(\''+t.id+'\')"><div class="ea-tci" style="color:'+t.c+'">●</div><div><div class="ea-tn">'+t.n+'</div><div class="ea-td">'+t.d+'</div></div></div>';}).join('');
+  return eaHead(2,'Session type','Adding to '+eaDay)+'<div class="ea-body"><button class="ea-bbk" onclick="eaGoStep(1)">← Back</button>'+cards+'</div>'+eaFoot('Next','eaGoStep(3)',!eaType);
+}
+window.eaPickType=function(t){eaType=t;eaRender();};
+function eaS3(){if(eaType==='easy')return eaFmEasy(true);if(eaType==='quality')return eaFmThresh(true);return eaFmLong(true);}
+function eaFmEasy(isAdd){
+  var h=isAdd?eaHead(3,'Easy run',eaDay+' · Zone 2'):eaEHead('var(--easy-col)','Easy run · editing','Easy Run','Adjust distance');
+  var bk=isAdd?'<button class="ea-bbk" onclick="eaGoStep(2)">← Back</button>':'';
+  var rs=isAdd?'':'<div class="ea-rlnk" onclick="eaResetSession()">Reset to original</div>';
+  var s=isAdd?null:SESSION_MAP[eaSid];var defKm=s&&s.title?(s.title.match(/(\d+)km/)||[,'8'])[1]:'8';
+  return h+'<div class="ea-body">'+bk+'<div class="ea-sec"><div class="ea-sh2"><div class="ea-bar" style="background:var(--easy-col)"></div><div class="ea-sl">Distance</div></div><div class="ea-frow"><input class="ea-fi" style="width:72px" id="ea-km" value="'+defKm+'"><span class="ea-flbl">km</span></div></div><div class="ea-sec"><div class="ea-sh2"><div class="ea-bar" style="background:var(--easy-col)"></div><div class="ea-sl">Heart rate zone</div></div><span style="font-size:0.85rem;color:var(--easy-col);font-weight:600">Zone 2 · 130–145 bpm</span><div style="font-size:0.72rem;color:var(--dim);margin-top:3px">From your Karvonen zones</div></div><div class="ea-sec"><div class="ea-sh2"><div class="ea-bar" style="background:var(--border)"></div><div class="ea-sl">Note (optional)</div></div><textarea class="ea-fi" style="width:100%;height:52px;text-align:left;resize:none;font-size:0.78rem" id="ea-note" placeholder="Add a coaching note...">'+(s&&s.note?s.note:'')+'</textarea></div>'+rs+'</div>'+eaFoot(isAdd?'Add session':'Save','eaSave(\'easy\')',false);
+}
+function eaFmThresh(isAdd){
+  var P=getEaPaces();
+  var h=isAdd?eaHead(3,'Threshold session',eaDay+' · pace pre-filled'):eaEHead('var(--quality-col)','Threshold · editing','Threshold '+eaTier,'Adjust reps or pace');
+  var bk=isAdd?'<button class="ea-bbk" onclick="eaGoStep(2)">← Back</button>':'';
+  var rs=isAdd?'':'<div class="ea-rlnk" onclick="eaResetSession()">Reset to original</div>';
+  var s=isAdd?null:SESSION_MAP[eaSid];
+  var defReps=s&&s.sub?(s.sub.match(/^(\d+)/)||[,'4'])[1]:'3';
+  var defDur=s&&s.sub?(s.sub.match(/\xd7(\d+)min/)||s.sub.match(/x(\d+)min/)||[,'8'])[1]:'8';
+  var tpills=['T1','T2','T3','T4'].map(function(t){return'<button class="ea-tp'+(eaTier===t?' sel':'')+'" onclick="eaPickTier(this,\''+t+'\')">'+t+' \xb7 '+(P[t]||'')+'</button>';}).join('');
+  return h+'<div class="ea-body">'+bk+'<div style="margin-bottom:10px"><div class="ea-fl">Threshold tier</div><div class="ea-tiers">'+tpills+'</div></div><div class="ea-sec"><div class="ea-sh2"><div class="ea-bar" style="background:var(--easy-col)"></div><div class="ea-sl">Warm-up</div></div><div class="ea-frow"><input class="ea-fi" style="width:60px" value="2"><span class="ea-flbl">km easy</span></div></div><div class="ea-sec"><div class="ea-sh2"><div class="ea-bar" style="background:var(--quality-col)"></div><div class="ea-sl">Training reps</div></div><div class="ea-rg"><div class="ea-rc"><div class="ea-rl">Reps</div><input class="ea-fi" id="ea-reps" value="'+defReps+'"></div><div class="ea-rc"><div class="ea-rl">Duration (min)</div><input class="ea-fi" id="ea-dur" value="'+defDur+'"></div><div class="ea-rc"><div class="ea-rl">Pace</div><input class="ea-pi" id="ea-pace" value="'+(P[eaTier]||'4:10/km')+'"></div></div><div class="ea-pn">\u26a1 Pre-filled from plan '+eaTier+' target</div></div><div class="ea-sec"><div class="ea-sh2"><div class="ea-bar" style="background:var(--quality-col);opacity:.5"></div><div class="ea-sl">Recovery</div></div><div class="ea-frow"><input class="ea-fi" style="width:60px" value="90"><span class="ea-flbl">sec jog between reps</span></div></div><div class="ea-sec"><div class="ea-sh2"><div class="ea-bar" style="background:var(--easy-col);opacity:.7"></div><div class="ea-sl">Cool-down</div></div><div class="ea-frow"><input class="ea-fi" style="width:60px" value="2"><span class="ea-flbl">km easy</span></div></div>'+rs+'</div>'+eaFoot(isAdd?'Add session':'Save','eaSave(\'threshold\')',false);
+}
+function eaFmLong(isAdd){
+  var P=getEaPaces();
+  var h=isAdd?eaHead(3,'Long run',eaDay+' \xb7 easy or with MP block'):eaEHead('var(--longrun-col)','Long run \xb7 editing','Long Run','Adjust distances or MP');
+  var bk=isAdd?'<button class="ea-bbk" onclick="eaGoStep(2)">\u2190 Back</button>':'';
+  var rs=isAdd?'':'<div class="ea-rlnk" onclick="eaResetSession()">Reset to original</div>';
+  var on=eaMpOn;
+  return h+'<div class="ea-body">'+bk+'<div class="ea-sec"><div class="ea-sh2"><div class="ea-bar" style="background:var(--easy-col)"></div><div class="ea-sl">Easy portion</div></div><div class="ea-frow"><input class="ea-fi" style="width:60px" id="ea-easy" value="'+(isAdd?10:13)+'"><span class="ea-flbl">km \xb7 Zone 2</span></div></div><div class="ea-sec"><div class="ea-sh2"><div class="ea-bar" style="background:var(--longrun-col)"></div><div class="ea-sl">Marathon pace block</div></div><div class="ea-mtr"><span style="font-size:0.85rem">Include MP block</span><div class="ea-ttrk'+(on?'':' off')+'" id="ea-mp-t" onclick="eaToggleMp()"><div class="ea-tknb"></div></div></div><div class="ea-mpf" id="ea-mp-f" style="display:'+(on?'block':'none')+'"><div class="ea-rg" style="grid-template-columns:1fr 1fr;margin-bottom:4px"><div class="ea-rc"><div class="ea-rl">MP distance</div><input class="ea-fi" id="ea-mp-km" value="'+(isAdd?4:6)+'"></div><div class="ea-rc"><div class="ea-rl">Target pace</div><input class="ea-pi" id="ea-mp-pace" value="'+(P.MP||P['MP-A']||'4:30/km')+'"></div></div><div class="ea-pn">\u26a1 Pre-filled from Goal A pace</div></div></div>'+rs+'</div>'+eaFoot(isAdd?'Add session':'Save','eaSave(\'long\')',false);
+}
+function eaFmReadonly(){var s=SESSION_MAP[eaSid];var t=s?s.t:'strength';return eaEHead(t==='strength'?'var(--strength-col)':'var(--dim)',t+' session','Strength session','Edit exercises in the Strength tab')+'<div class="ea-body" style="color:var(--dim);font-size:0.85rem;line-height:1.6">Gym sessions use the shared Strength A/B layout. Change exercises in the Strength tab – updates apply across all weeks.</div><div class="ea-foot"><button class="ea-bp" onclick="eaClose()">Got it</button></div>';}
+window.eaPickTier=function(btn,t){eaTier=t;document.querySelectorAll('.ea-tp').forEach(function(e){e.classList.remove('sel');});btn.classList.add('sel');var p=document.getElementById('ea-pace');var pn=document.querySelector('.ea-pn');var P=getEaPaces();if(p)p.value=P[t]||t;if(pn)pn.innerHTML='\u26a1 Pre-filled from plan '+t+' target';};
+window.eaToggleMp=function(){eaMpOn=!eaMpOn;var tr=document.getElementById('ea-mp-t');var f=document.getElementById('ea-mp-f');if(tr)tr.className='ea-ttrk'+(eaMpOn?'':' off');if(f)f.style.display=eaMpOn?'block':'none';};
+window.eaGoStep=function(n){eaStep=n;eaRender();};
+window.eaSave=function(type){if(eaMode==='add'){eaInsertCard(type);}else{eaUpdateCard(type);}eaClose();};
+window.eaResetSession=function(){var s=SESSION_MAP[eaSid];if(!s)return eaClose();var ov=SESSION_OVERRIDES[eaSid];if(ov&&ov.orig){s.title=ov.orig.title;s.sub=ov.orig.sub;delete SESSION_OVERRIDES[eaSid];}var card=document.querySelector('.session-card[data-session-id="'+eaSid+'"]');if(card&&card.dataset.week)reRenderWeekBody(card.dataset.week);markDirty();eaClose();};
+function eaInsertCard(type){
+  if(!eaDay||!eaWid)return;
+  var dayRows=document.querySelectorAll('.week-body[data-week="'+eaWid+'"] .day-row');
+  var targetSlot=null;
+  dayRows.forEach(function(row){var lbl=row.querySelector('.day-label');if(lbl&&lbl.textContent.trim()===eaDay)targetSlot=row.querySelector('.session-slot');});
+  if(!targetSlot)return;
+  var newId='custom-'+Date.now();
+  var title,sub,badge,cls,newSteps;
+  if(type==='easy'){var km=(document.getElementById('ea-km')||{value:'8'}).value;title='Easy Run \xb7 '+km+'km';sub='Zone 2 \xb7 HR 130\u2013145 bpm';badge='E';cls='easy';newSteps=['r:'+km+'km at HR Zone 2'];}
+  else if(type==='threshold'){var reps=(document.getElementById('ea-reps')||{value:'3'}).value;var dur=(document.getElementById('ea-dur')||{value:'8'}).value;var pace=(document.getElementById('ea-pace')||{value:'4:10/km'}).value;title='Threshold '+eaTier;sub=reps+'\xd7'+dur+'min @ '+pace;badge=eaTier;cls='quality';newSteps=['w:2km warm-up easy','s:'+reps+' \xd7 '+dur+'min @ '+pace+' \xb7 90s jog recovery','c:2km cool-down'];}
+  else{var easy=(document.getElementById('ea-easy')||{value:'10'}).value;var mpkm=(document.getElementById('ea-mp-km')||{value:'4'}).value;var mppace=(document.getElementById('ea-mp-pace')||{value:'4:30/km'}).value;var total=eaMpOn?parseInt(easy)+parseInt(mpkm):parseInt(easy);title='Long Run \xb7 '+total+'km';sub=eaMpOn?easy+'km easy + '+mpkm+'km @ '+mppace:easy+'km easy';badge='LR';cls='long';newSteps=eaMpOn?['r:'+easy+'km easy at HR Zone 2','s:'+mpkm+'km at MP '+mppace]:['r:'+easy+'km easy at HR Zone 2'];}
+  SESSION_MAP[newId]={id:newId,t:cls,title:title,sub:sub,steps:newSteps,note:''};
+  CUSTOM_SESSIONS[newId]=SESSION_MAP[newId];
+  if(!planState[eaWid])planState[eaWid]={};
+  if(!planState[eaWid][eaDay])planState[eaWid][eaDay]=[];
+  planState[eaWid][eaDay]=realIds(planState[eaWid][eaDay]);
+  planState[eaWid][eaDay].push(newId);
+  reRenderWeekBody(eaWid);
+  markDirty();
+}
+function eaUpdateCard(type){
+  var sv=SESSION_MAP[eaSid];if(!sv)return;
+  var card=document.querySelector('.session-card[data-session-id="'+eaSid+'"]');
+  var wid=card?card.dataset.week:null;
+  if(!eaSid.startsWith('custom-')&&!SESSION_OVERRIDES[eaSid])SESSION_OVERRIDES[eaSid]={orig:{title:sv.title,sub:sv.sub}};
+  var nt=sv.title,nsub=sv.sub;
+  if(type==='easy'){var km=(document.getElementById('ea-km')||{value:'13'}).value;nt='Easy Run \xb7 '+km+'km';}
+  else if(type==='threshold'){var reps=(document.getElementById('ea-reps')||{value:'4'}).value;var dur=(document.getElementById('ea-dur')||{value:'8'}).value;var pace=(document.getElementById('ea-pace')||{value:'4:10/km'}).value;nt='Threshold '+eaTier;nsub=reps+'\xd7'+dur+'min @ '+pace;}
+  else if(type==='long'){var easy=(document.getElementById('ea-easy')||{value:'13'}).value;var mpkm=(document.getElementById('ea-mp-km')||{value:'6'}).value;var mppace=(document.getElementById('ea-mp-pace')||{value:'4:30/km'}).value;var total=eaMpOn?parseInt(easy)+parseInt(mpkm):parseInt(easy);nt='Long Run \xb7 '+total+'km';nsub=eaMpOn?easy+'km easy + '+mpkm+'km @ '+mppace:easy+'km easy';}
+  sv.title=nt;sv.sub=nsub;
+  if(!eaSid.startsWith('custom-')){SESSION_OVERRIDES[eaSid].title=nt;SESSION_OVERRIDES[eaSid].sub=nsub;}
+  if(wid)reRenderWeekBody(wid);
+  markDirty();
+}
+})();
+// ── END EDIT / ADD SESSION FEATURE ─────────────────────────────────────────
+
+// ══════════════════════════════════════════════════
+//  TODAY TAB (added) – live daily home view
+// ══════════════════════════════════════════════════
+var PHASE_NAME_MAP={'base':'Base','deload-base':'Base','threshold-ph':'Threshold','deload-threshold':'Threshold','specific':'Specific','taper':'Taper','race-wk':'Race'};
+var T_PRIO={quality:0,race:1,long:2,easy:3,strength:4};
+var T_BADGE={easy:'E',quality:'Q',long:'LR',strength:'ST',rest:'·',race:'!'};
+var T_ORDER=['MON','TUE','WED','THU','FRI','SAT','SUN'];
+var T_BARCOL={w:'var(--easy-col)',c:'var(--easy-col)',r:'var(--easy-col)',s:'var(--quality-col)',e:'var(--strength-col)',n:'var(--border)'};
+
+function getPlanPosition(){
+  var today=new Date();today.setHours(12,0,0,0);
+  var firstStart=new Date(DATES[0][0]+'T00:00:00');
+  var lastEnd=new Date(DATES[DATES.length-1][1]+'T23:59:59');
+  if(today<firstStart){var days=Math.ceil((firstStart-today)/86400000);return {status:'pre',weekIdx:0,dayLabel:'MON',daysToStart:days};}
+  if(today>lastEnd){return {status:'post',weekIdx:DATES.length-1,dayLabel:'SUN',daysToStart:0};}
+  for(var i=0;i<DATES.length;i++){var s=new Date(DATES[i][0]+'T00:00:00'),e=new Date(DATES[i][1]+'T23:59:59');if(today>=s&&today<=e){var off=Math.floor((today-new Date(DATES[i][0]+'T12:00:00'))/86400000);return {status:'during',weekIdx:i,dayLabel:T_ORDER[Math.max(0,Math.min(6,off))],daysToStart:0};}}
+  return {status:'during',weekIdx:0,dayLabel:'MON',daysToStart:0};
+}
+function tDaySids(wid,dl,dayObj){return (planState[wid]&&planState[wid][dl])||(dayObj?dayObj.sessions.map(function(s){return s.id;}):[]);}
+function tSortReal(arr){return arr.slice().sort(function(a,b){return (T_PRIO[a.t]==null?9:T_PRIO[a.t])-(T_PRIO[b.t]==null?9:T_PRIO[b.t]);});}
+function findNextSession(startWeek,startDayIdx){
+  for(var wi=startWeek; wi<PLAN_DATA.length; wi++){
+    var wk=PLAN_DATA[wi], wid='wk'+(wi+1), di0=(wi===startWeek)?startDayIdx+1:0;
+    for(var di=di0; di<T_ORDER.length; di++){
+      var dl=T_ORDER[di], dayObj=wk.days.find(function(d){return d.d===dl;}); if(!dayObj)continue;
+      var real=tDaySids(wid,dl,dayObj).map(function(id){return SESSION_MAP[id];}).filter(function(s){return s&&s.t!=='rest';});
+      if(real.length){real=tSortReal(real);return {wi:wi,di:di,sid:real[0].id,sess:real[0]};}
+    }
+  }
+  return null;
+}
+function tStepHtml(steps){
+  var html='';
+  (steps||[]).forEach(function(step){
+    var ci=step.indexOf(':'),k=step.substring(0,ci),txt=step.substring(ci+1);
+    var km=STEP_KIND[k]||STEP_KIND.n, col=T_BARCOL[k]||'var(--border)';
+    html+='<div class="thero-step"><div class="bar" style="background:'+col+'"></div><div style="flex:1">'+(km.label?'<div class="kind" style="color:'+col+'">'+km.label+'</div>':'')+'<div class="txt">'+txt+'</div></div></div>';
+  });
+  return html;
+}
+function tHero(sess,banner){
+  var meta=TYPE_META[sess.t]||TYPE_META.easy, done=completionState[sess.id]==='done';
+  var btnBg=done?'rgba(63,185,80,0.12)':'rgba(240,136,62,0.14)', btnCol=done?'var(--base)':'var(--quality-col)', btnTxt=done?'\u2713  Completed':'Mark complete';
+  return '<div class="thero" style="border-left-color:'+meta.dotColor+';opacity:'+(done?0.72:1)+'">'
+    +(banner?'<div style="background:rgba(88,166,255,0.08);border-bottom:1px solid var(--border);padding:11px 16px;font-size:0.8rem;color:var(--easy-col);font-weight:600">'+banner+'</div>':'')
+    +'<div style="padding:16px 16px 4px"><div class="thero-pill" style="background:'+meta.badgeColor+';color:'+meta.badgeText+'"><span class="dot" style="background:'+meta.dotColor+'"></span>'+meta.label+'</div>'
+    +'<div class="thero-title" style="text-decoration:'+(done?'line-through':'none')+';text-decoration-color:rgba(63,185,80,.5)">'+sess.title+'</div>'
+    +(sess.sub?'<div class="thero-sub">'+sess.sub+'</div>':'')+'</div>'
+    +'<div style="padding:0 16px 4px">'+tStepHtml(sess.steps)+'</div>'
+    +(sess.note?'<div class="thero-note" style="background:rgba(88,166,255,0.06);border:1px solid rgba(88,166,255,0.15);border-left:3px solid var(--easy-col);color:#9aa4af">'+sess.note+'</div>':'')
+    +'<button class="thero-btn" style="background:'+btnBg+';color:'+btnCol+'" onclick="tToggle(\''+sess.id+'\',event)">'+btnTxt+'</button></div>';
+}
+function tSec(sess){
+  var meta=TYPE_META[sess.t]||TYPE_META.easy, done=completionState[sess.id]==='done';
+  return '<div class="tsec-card" style="border-left-color:'+meta.dotColor+';opacity:'+(done?0.6:1)+'" onclick="openSheet(\''+sess.id+'\')">'
+    +'<div class="sc-badge" style="background:'+meta.badgeColor+';color:'+meta.badgeText+'">'+(T_BADGE[sess.t]||'·')+'</div>'
+    +'<div class="sc-info"><div class="sc-title" style="'+(done?'text-decoration:line-through;text-decoration-color:rgba(63,185,80,.5)':'')+'">'+sess.title+'</div>'+(sess.sub?'<div class="sc-sub">'+sess.sub+'</div>':'')+'</div>'
+    +'<button class="completion-btn'+(done?' done':'')+'" onclick="tToggle(\''+sess.id+'\',event)">'+(done?'\u2713':'')+'</button></div>';
+}
+function tToggle(sid,e){if(e&&e.stopPropagation)e.stopPropagation();window.toggleCompletion(sid,e||{stopPropagation:function(){}});renderToday();}
+window.tToggle=tToggle;
+
+function renderToday(){
+  var panel=document.getElementById('panel-today'); if(!panel)return;
+  var pos=getPlanPosition();
+  var now=new Date();
+  var dayName=now.toLocaleDateString('en-GB',{weekday:'long'});
+  var dateLine=now.toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'});
+  var curIdx=pos.weekIdx, wid='wk'+(curIdx+1), wk=PLAN_DATA[curIdx];
+  // phase bar + context
+  var names=VOL_DATA.map(function(w){return PHASE_NAME_MAP[w.phase]||w.phase;});
+  var curName=names[curIdx];
+  var st=curIdx; while(st>0&&names[st-1]===curName)st--; var en=curIdx; while(en<names.length-1&&names[en+1]===curName)en++;
+  var wkInPhase=curIdx-st+1, phaseLen=en-st+1;
+  var segHtml=VOL_DATA.map(function(w,i){var rgb=PHASE_RGB[w.phase]||'139,148,158',isCur=i===curIdx,past=i<curIdx;var bg=(past||isCur)?'rgb('+rgb+')':'rgba('+rgb+',0.22)';return '<div class="tphase-seg" title="Week '+(i+1)+'" style="height:'+(isCur?'28px':'20px')+';background:'+bg+';outline:'+(isCur?'2px solid rgb('+rgb+')':'none')+'"></div>';}).join('');
+  var phaseRgb=PHASE_RGB[VOL_DATA[curIdx].phase]||'139,148,158';
+  var tphaseCard='<div class="tphase-card"><div class="tphase-head"><div><div class="tphase-wk">Week '+(curIdx+1)+' of '+PLAN_DATA.length+'</div><div class="tphase-name" style="color:rgb('+phaseRgb+')">'+curName+' phase</div></div><div class="tphase-sub">'+curName+' block · week '+wkInPhase+' of '+phaseLen+'</div></div><div class="tphase-bar">'+segHtml+'</div><div class="tphase-legend"><span>Base</span><span>Threshold</span><span>Specific</span><span>Taper</span></div></div>';
+  // today sessions
+  var dayObj=wk.days.find(function(d){return d.d===pos.dayLabel;});
+  var real=tDaySids(wid,pos.dayLabel,dayObj).map(function(id){return SESSION_MAP[id];}).filter(function(s){return s&&s.t!=='rest';});
+  real=tSortReal(real);
+  var primary=real[0], secondary=real.slice(1);
+  var heroLabel='Today', statusNote='', banner='';
+  if(pos.status==='pre'){heroLabel='Your first session';statusNote=' · plan starts in '+pos.daysToStart+' days';banner='Plan starts '+new Date(DATES[0][0]+'T12:00:00').toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'})+' · '+pos.daysToStart+' days to go';}
+  else if(pos.status==='post'){heroLabel='Plan complete';}
+  var heroHtml;
+  if(pos.status==='post'){heroHtml='<div class="thero" style="border-left-color:var(--race-col);padding:20px 16px"><div class="thero-title">Plan complete</div><div class="thero-sub" style="margin-bottom:0">'+PLAN_DATA.length+' weeks done. However race day went – that was a serious block of work.</div></div>';}
+  else if(!primary){heroHtml='<div class="thero" style="border-left-color:var(--border);padding:20px 16px"><div class="thero-title">Rest day</div><div class="thero-sub" style="margin-bottom:0">Full recovery – nothing scheduled. Recovery is where the adaptation happens.</div></div>';}
+  else{heroHtml=tHero(primary,banner);}
+  var secHtml=(primary&&secondary.length)?('<div class="tlabel" style="margin-top:-4px">Also '+(pos.status==='pre'?'on day one':'today')+'</div>'+secondary.map(tSec).join('')+'<div style="height:6px"></div>'):'';
+  // week strip
+  var stripHtml=wk.days.map(function(d){
+    var dreal=tDaySids(wid,d.d,d).map(function(id){return SESSION_MAP[id];}).filter(function(s){return s&&s.t!=='rest';});
+    var dprim=tSortReal(dreal)[0];
+    var allDone=dreal.length>0&&dreal.every(function(s){return completionState[s.id]==='done';});
+    var isToday=(pos.status==='during'&&d.d===pos.dayLabel), isRest=dreal.length===0;
+    var meta=dprim?TYPE_META[dprim.t]:null;
+    var dotBg,dotCol,dotBorder,dotText;
+    if(allDone){dotBg='rgba(63,185,80,0.18)';dotCol='var(--base)';dotBorder='var(--base)';dotText='\u2713';}
+    else if(isRest){dotBg='transparent';dotCol='var(--dim)';dotBorder='var(--border)';dotText='·';}
+    else{dotBg=meta.badgeColor;dotCol=meta.badgeText;dotBorder=meta.dotColor;dotText=T_BADGE[dprim.t]||'·';}
+    var tapSid=dprim?dprim.id:(tDaySids(wid,d.d,d)[0]||'');
+    return '<div class="tstrip-day" style="background:'+(isToday?'rgba(240,136,62,0.08)':'transparent')+';border-color:'+(isToday?'rgba(240,136,62,0.4)':'transparent')+'" '+(tapSid?'onclick="openSheet(\''+tapSid+'\')"':'')+'><div class="tstrip-lbl" style="color:'+(isToday?'var(--quality-col)':'var(--dim)')+'">'+d.d.substring(0,1)+'</div><div class="tstrip-dot" style="background:'+dotBg+';color:'+dotCol+';border-color:'+dotBorder+'">'+dotText+'</div></div>';
+  }).join('');
+  // week km progress
+  var prog=getWeekRunProgress(wid);
+  var fill=prog.pct===100?'var(--base)':prog.pct>=50?'var(--specific)':prog.pct>0?'var(--quality-col)':'var(--dim)';
+  var progHtml='<div class="twk-prog"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px"><div style="font-size:0.82rem;font-weight:600"><span style="font-family:var(--display);font-weight:900;font-size:1.15rem;color:'+fill+'">'+prog.doneKm+'</span> <span style="color:var(--dim)">of '+prog.totalKm+' km run</span></div><div style="font-size:0.82rem;font-weight:700;color:'+fill+'">'+prog.pct+'%</div></div><div style="height:6px;background:var(--border);border-radius:4px;overflow:hidden"><div style="height:100%;border-radius:4px;transition:width .5s cubic-bezier(.34,1.2,.64,1),background-color .3s;width:'+prog.pct+'%;background:'+fill+'"></div></div></div>';
+  // up next
+  var startDayIdx=(pos.status==='pre')?-1:T_ORDER.indexOf(pos.dayLabel);
+  var nx=findNextSession(curIdx,startDayIdx);
+  var nextHtml='';
+  if(nx){var nm=TYPE_META[nx.sess.t], nb=T_BADGE[nx.sess.t]||'·', dShort=T_ORDER[nx.di].charAt(0)+T_ORDER[nx.di].substring(1).toLowerCase(), when=(nx.wi===curIdx)?dShort:('Wk'+(nx.wi+1)+' · '+dShort);
+    nextHtml='<div class="tlabel">Up next</div><div class="tnext" style="border-left-color:'+nm.dotColor+'" onclick="openSheet(\''+nx.sid+'\')"><div class="sc-badge" style="background:'+nm.badgeColor+';color:'+nm.badgeText+'">'+nb+'</div><div style="flex:1;min-width:0"><div style="font-size:0.88rem;font-weight:600">'+nx.sess.title+'</div>'+(nx.sess.sub?'<div style="font-size:0.76rem;color:var(--dim);margin-top:1px">'+nx.sess.sub+'</div>':'')+'</div><div style="font-size:0.74rem;color:var(--dim);font-weight:600">'+when+'</div></div>';}
+  // assemble
+  panel.innerHTML='<div class="today-top"><div><div class="today-day">'+dayName+'</div><div class="today-date">'+dateLine+statusNote+'</div></div></div>'
+    +tphaseCard
+    +'<div class="tlabel">'+heroLabel+'</div>'+heroHtml+secHtml
+    +'<div style="display:flex;align-items:baseline;justify-content:space-between;margin:0 2px 12px"><div class="tlabel" style="margin:0">This week <span style="color:#484f58;letter-spacing:0;text-transform:none;font-weight:500">· tap a day</span></div><div style="font-size:0.74rem;color:var(--dim)"><span style="font-family:var(--display);font-weight:900;font-size:0.95rem;color:var(--text)">'+wk.km+'</span> km planned</div></div>'
+    +'<div class="tstrip">'+stripHtml+'</div>'
+    +progHtml
+    +nextHtml;
+}
+window.renderToday=renderToday;
+(function(){var _o=window.switchTab;window.switchTab=function(name,btn){_o(name,btn);var ex=document.getElementById('masthead-extra');if(ex)ex.style.display=(name==='today')?'none':'block';if(name==='today')renderToday();};})();
+renderToday();
+window.addEventListener('firebaseReady',function(){setTimeout(renderToday,500);});
+setTimeout(renderToday,1400);
+
+</script>
+<div class="ea-ov" id="ea-ov" onclick="eaClose()"></div>
+<div class="ea-sh" id="ea-sh"><div class="ea-hdl"></div><div id="ea-sc" style="display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0"></div></div>
+
+<script>
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('/sw.js')
+      .then(r=>console.log('SW registered:',r.scope))
+      .catch(e=>console.log('SW failed:',e));
+  });
+}
+</script>
+</body>
+</html>
